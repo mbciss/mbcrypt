@@ -184,10 +184,17 @@ le concept rapidement sans modifier l'extension.
 - `PHP_INI_SYSTEM` : non surchargeable par ini_set() ou .htaccess
 
 ### Build PHP statique
-- **Statut : implemente**
-- mbcryptload compile directement dans php.exe
+- **Statut : implemente et verifie (2026-07-17)**
+- mbcryptload compile directement dans php.exe (confirme via `--ri mbcryptload`,
+  `-m`, et dechiffrement reel de `test/php83/calcul.encrypted.php` -- y compris
+  appel direct du fichier chiffre avec mot de passe en php.ini, sans loader)
 - Aucune ligne `extension=` necessaire
 - Utile pour distribution d'un PHP autonome avec protection integree
+- Le script `build-windows-static.ps1` ne s'etait en realite jamais execute
+  avec succes avant cette date (aucune trace, aucun artefact) malgre ce
+  statut. Six bugs bloquants corriges pour obtenir un build reel -- detail
+  dans `build/GUIDE-COMPILATION-WINDOWS.md` section "Piege connu : build
+  PHP statique et outillage SDK".
 
 ### Arginfo PHP 8.x
 - **Statut : implemente**

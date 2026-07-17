@@ -4,4 +4,8 @@
 # Build artifacts (compiled binaries, downloaded devel packs)
 build/dist/*.dll
 build/dist/*.exe
+build/dist/static/
 build/devel-packs/
+build/php-sdk-tools/
+build/php-static-builds/
+build/*.log

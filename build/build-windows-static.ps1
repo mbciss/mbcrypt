@@ -13,8 +13,15 @@ $SCRIPT_DIR  = Split-Path -Parent $MyInvocation.MyCommand.Path
 $PROJECT_DIR = Split-Path -Parent $SCRIPT_DIR
 $EXT_SRC     = Join-Path $PROJECT_DIR "mbcrypt"
 
-$SDK_DIR     = Join-Path $SCRIPT_DIR "php-sdk-tools"
-$BUILDS_DIR  = Join-Path $SCRIPT_DIR "php-static-builds"
+# The PHP SDK's own batch scripts (phpsdk_deps.bat, buildconf.bat...) do not
+# reliably quote paths internally and break if invoked from a directory that
+# contains a space (a known limitation of PHP's Windows build tooling — the
+# official docs recommend building from "C:\php-sdk" for this exact reason).
+# SDK + PHP source + nmake therefore run from a fixed, space-free path,
+# regardless of where this project itself is checked out.
+$BUILD_ROOT  = "C:\mbcrypt-php-static-build"
+$SDK_DIR     = Join-Path $BUILD_ROOT "php-sdk-tools"
+$BUILDS_DIR  = Join-Path $BUILD_ROOT "php-static-builds"
 $DIST_DIR    = Join-Path $SCRIPT_DIR "dist\static"
 
 # VS2019
@@ -49,8 +56,11 @@ $CONFIGURE_OPTS = @(
     "--enable-hash",
     "--enable-tokenizer",
     "--enable-sockets",
-    "--enable-fileinfo",
-    "--with-curl"
+    "--enable-fileinfo"
+    # --with-curl deliberately omitted: mbcryptload does not need it, and
+    # the bundled libcurl_a.lib in the SDK deps pulls in Brotli decoder
+    # symbols (BrotliDecoder*) that this deps package does not ship a
+    # matching brotli.lib for, causing LNK2001/LNK1120 at link time.
 )
 
 # ---------------------------------------------------------------------------
@@ -73,15 +83,16 @@ if (-not (Test-Path $VCVARSALL)) {
 }
 Log-OK "VS2019 vcvarsall: $VCVARSALL"
 
-if (-not (Test-Path $BUILDS_DIR)) { New-Item -ItemType Directory -Path $BUILDS_DIR | Out-Null }
-if (-not (Test-Path $DIST_DIR))   { New-Item -ItemType Directory -Path $DIST_DIR   | Out-Null }
+if (-not (Test-Path $BUILD_ROOT))  { New-Item -ItemType Directory -Path $BUILD_ROOT  | Out-Null }
+if (-not (Test-Path $BUILDS_DIR))  { New-Item -ItemType Directory -Path $BUILDS_DIR  | Out-Null }
+if (-not (Test-Path $DIST_DIR))    { New-Item -ItemType Directory -Path $DIST_DIR    | Out-Null }
 
 # ---------------------------------------------------------------------------
 # Step 1 -- Download PHP SDK binary tools
 # ---------------------------------------------------------------------------
 Log-Step "PHP SDK binary tools"
 
-$SDK_MARKER = Join-Path $SDK_DIR "phpsdk-vc16-x64.bat"
+$SDK_MARKER = Join-Path $SDK_DIR "phpsdk-vs16-x64.bat"
 
 if (Test-Path $SDK_MARKER) {
     Log-OK "SDK already present: $SDK_DIR"
@@ -100,20 +111,22 @@ if (Test-Path $SDK_MARKER) {
         $zipUrl = "https://github.com/php/php-sdk-binary-tools/archive/refs/heads/master.zip"
     }
 
-    $sdkZip = Join-Path $SCRIPT_DIR "php-sdk-tools.zip"
+    $sdkZip = Join-Path $BUILD_ROOT "php-sdk-tools.zip"
     Write-Host "    Downloading: $zipUrl" -ForegroundColor Gray
 
     try {
         Invoke-WebRequest -Uri $zipUrl -OutFile $sdkZip -UseBasicParsing -TimeoutSec 120
-        Expand-Archive -Path $sdkZip -DestinationPath $SCRIPT_DIR -Force
+        Expand-Archive -Path $sdkZip -DestinationPath $BUILD_ROOT -Force
 
-        # Rename extracted folder (may be php-sdk-binary-tools-master)
-        $extracted = Get-ChildItem $SCRIPT_DIR -Directory | Where-Object {
+        # Rename extracted folder (may be php-sdk-binary-tools-master).
+        # Move-Item (not Rename-Item) so this also works if $BUILD_ROOT ever
+        # ends up on a different drive than the extraction target.
+        $extracted = Get-ChildItem $BUILD_ROOT -Directory | Where-Object {
             $_.Name -like "php-sdk-binary-tools*"
         } | Select-Object -First 1
 
         if ($extracted -and $extracted.FullName -ne $SDK_DIR) {
-            Rename-Item $extracted.FullName $SDK_DIR -Force
+            Move-Item $extracted.FullName $SDK_DIR -Force
         }
 
         Remove-Item $sdkZip -Force -ErrorAction SilentlyContinue
@@ -212,32 +225,37 @@ function Build-Static {
     $confOpts += " --with-php-build=`"$depsDir`""
     $confOpts += " --without-php-build-deps"
 
-    # --- Write the build batch file ---
-    $batchFile = Join-Path $BUILDS_DIR "build_php${ver}.bat"
+    # --- Write the task batch file (runs INSIDE the SDK-configured shell) ---
+    #
+    # The PHP SDK ships its own environment bootstrap (phpsdk-vs16-x64.bat ->
+    # phpsdk-starter.bat -> phpsdk_setshell.bat/phpsdk_setvars.bat), which
+    # locates Visual Studio via vswhere, runs vcvarsall itself, and — crucially
+    # — sets an internal "active CRT" marker that phpsdk_deps.php validates
+    # against the target branch. Calling vcvarsall.bat ourselves and adding
+    # the SDK's bin/ to PATH by hand (as an earlier version of this script
+    # did) skips that marker, so phpsdk_deps.php aborts with
+    # "Active CRT name '' differs from the branch CRT name 'vs16'". The task
+    # script below is therefore invoked THROUGH phpsdk-vs16-x64.bat -t, not
+    # run standalone.
+    $taskFile   = Join-Path $BUILDS_DIR "build_php${ver}.bat"
+    $starterBat = Join-Path $SDK_DIR "phpsdk-vs16-x64.bat"
     $releaseDir = Join-Path $SrcDir "x64\Release_TS"
 
-    $batch = @"
+    $task = @"
 @echo off
 setlocal
 
-REM Setup VS2019 x64 environment
-call "$VCVARSALL" amd64
-if errorlevel 1 ( echo [KO] vcvarsall failed & exit /b 1 )
-
-REM Add PHP SDK tools to PATH
-set "PATH=$SDK_DIR\bin\vc16\x64;$SDK_DIR\bin;%PATH%"
-set "PHPSDKDIR=$SDK_DIR"
-
-REM Download dependencies for this PHP branch
 echo [..] Downloading deps for PHP $branch ...
-cd /d "$SDK_DIR"
-call phpsdk_deps.bat --branch $branch --deps "$depsDir" --x64
-if errorlevel 1 ( echo [!!] phpsdk_deps failed -- continuing without update & )
+call phpsdk_deps.bat --update --branch $branch --arch x64 --deps "$depsDir"
+if errorlevel 1 ( echo [!!] phpsdk_deps failed -- continuing without update )
 
-REM Build PHP
 cd /d "$SrcDir"
 echo [..] Running buildconf ...
-call buildconf.bat --force
+REM NoDefaultCurrentDirectoryInExePath is set on this machine (likely by the
+REM VS Build Tools environment), which removes the CWD from cmd's implicit
+REM executable search path -- a bare "buildconf.bat" then fails with
+REM "is not recognized" even though the file is right there. ".\" fixes it.
+call .\buildconf.bat --force
 if errorlevel 1 ( echo [KO] buildconf failed & exit /b 1 )
 
 echo [..] Running configure ...
@@ -252,12 +270,16 @@ echo [OK] Build complete.
 exit /b 0
 "@
 
-    [System.IO.File]::WriteAllText($batchFile, $batch, [System.Text.Encoding]::ASCII)
+    [System.IO.File]::WriteAllText($taskFile, $task, [System.Text.Encoding]::ASCII)
 
-    # --- Run the build ---
+    # --- Run the build, through the SDK's own environment bootstrap ---
+    # $taskFile is intentionally NOT quoted here: phpsdk-starter.bat assigns
+    # its -t argument straight into %TASK% and re-quotes it downstream, so a
+    # quoted path ends up double-quoted and breaks ("filename syntax is
+    # incorrect"). $BUILD_ROOT has no spaces, so passing it bare is safe.
     Write-Host "    Building (this can take 10-20 minutes)..." -ForegroundColor Gray
     $proc = Start-Process -FilePath "cmd.exe" `
-        -ArgumentList "/c `"$batchFile`" 2>&1" `
+        -ArgumentList "/c `"$starterBat`" -t $taskFile 2>&1" `
         -WorkingDirectory $SrcDir `
         -Wait -PassThru `
         -RedirectStandardOutput (Join-Path $BUILDS_DIR "build_php${ver}.log") `
@@ -311,15 +333,10 @@ exit /b 0
         Copy-Item $_.FullName $outDir -Force
     }
 
-    # Copy ext/ folder (shared extensions like opcache)
-    $extOutDir = Join-Path $releaseDir "ext"
-    if (Test-Path $extOutDir) {
-        $extDist = Join-Path $outDir "ext"
-        if (-not (Test-Path $extDist)) { New-Item -ItemType Directory -Path $extDist | Out-Null }
-        Get-ChildItem $extOutDir -Filter "*.dll" | ForEach-Object {
-            Copy-Item $_.FullName $extDist -Force
-        }
-    }
+    # NOTE: nmake's own output directory (x64\Release_TS) does not contain a
+    # separate "ext\" subfolder for shared modules like opcache -- php_opcache.dll
+    # lands directly next to php.exe, alongside the other *.dll's already
+    # copied above. extension_dir is therefore set to "." below, not "ext".
 
     # Generate a minimal php.ini
     $phpIni = @"
@@ -334,8 +351,8 @@ zend_extension=php_opcache.dll
 opcache.enable=1
 opcache.enable_cli=1
 
-; Extension directory
-extension_dir=ext
+; Extension directory (php_opcache.dll sits next to php.exe, not in a subfolder)
+extension_dir=.
 "@
     [System.IO.File]::WriteAllText((Join-Path $outDir "php.ini"), $phpIni, [System.Text.Encoding]::ASCII)
 

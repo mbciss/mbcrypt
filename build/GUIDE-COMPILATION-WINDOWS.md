@@ -205,9 +205,11 @@ toujours active.
 Le script `build-windows-static.ps1` telecharge automatiquement :
 - **PHP SDK binary tools** (github.com/php/php-sdk-binary-tools)
 - **Sources PHP** pour chaque version (windows.php.net)
-- **Dependances binaires** via `phpsdk_deps` (zlib, openssl, curl, sqlite3...)
+- **Dependances binaires** via `phpsdk_deps` (zlib, openssl, sqlite3...)
 
-Aucun telechargement manuel n'est requis.
+Aucun telechargement manuel n'est requis. La compilation se fait dans
+`C:\mbcrypt-php-static-build\` (chemin fixe, sans espace -- voir "Piege
+connu" ci-dessous), independamment de l'emplacement de ce depot.
 
 #### Lancement
 
@@ -216,6 +218,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File build\build-windows-stat
 ```
 
 > Chaque version PHP prend **10 a 20 minutes** (compilation complete de PHP).
+> Verifie en conditions reelles le 2026-07-17 pour PHP 8.3.16 (~18 min,
+> dont l'essentiel en telechargement des dependances la premiere fois).
 
 #### Modules compiles dans php.exe
 
@@ -225,17 +229,24 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File build\build-windows-stat
 | zlib, openssl, bcmath, mbstring | statique |
 | ctype, filter, hash, tokenizer | statique |
 | pdo, sqlite3, pdo_sqlite | statique |
-| sockets, fileinfo, curl | statique |
+| sockets, fileinfo | statique |
 | opcache | partage (.dll) -- ne peut pas etre statique |
 
-#### Resultat dans `build\dist\static\php-8.x\`
+`curl` a ete retire de la liste des modules (voir "Piege connu" plus bas).
+
+#### Resultat dans `build\dist\static\php-8.x\` (verifie pour PHP 8.3.16)
 
 ```
-php.exe              PHP CLI avec mbcryptload integre (~8-12 MB)
-php.ini              Pre-configure (mbcryptload.password a renseigner)
-ext\
-  php_opcache.dll    Seul module restant en .dll
-*.dll                Dependances (zlib, openssl, libcurl...)
+php.exe              Lanceur PHP CLI (139 KB) -- le moteur est dans php8ts.dll
+php8ts.dll           Moteur PHP complet, mbcryptload y est compile en dur
+php_opcache.dll      Module partage attendu (opcache ne peut pas etre statique)
+php_openssl.dll      Compile en partage malgre --with-openssl (sans =static) --
+                      pas d'impact sur mbcryptload, qui utilise directement
+                      OpenSSL via mbcrypt_lib.c, independamment du module PHP openssl
+php_fileinfo.dll     Idem, compile en partage malgre --enable-fileinfo
+php.ini              Pre-configure (mbcryptload.password a renseigner),
+                      extension_dir=. -- tous les .dll sont a cote de php.exe,
+                      pas dans un sous-dossier ext\
 ```
 
 #### Verification
@@ -258,8 +269,66 @@ mbcryptload.password = "votre-mot-de-passe"
 zend_extension=php_opcache.dll
 opcache.enable=1
 opcache.enable_cli=1
-extension_dir=ext
+extension_dir=.
 ```
+
+---
+
+## Piege connu : build PHP statique et outillage SDK (corrige)
+
+Jusqu'au 2026-07-17, `build-windows-static.ps1` **n'avait jamais tourne avec
+succes** dans cet environnement, malgre le statut "implemente" note dans
+`pistes-a-explorer.md` -- aucun artefact, aucune trace d'execution. Six bugs
+bloquants distincts ont ete decouverts et corriges, un par un, pour obtenir
+un `php.exe` reellement fonctionnel :
+
+1. **Chemin de projet avec espace** ("Z:\PHP CRYPT V2025") -- les scripts
+   `.bat` du PHP SDK (`phpsdk_deps.bat`...) ne quotent pas systematiquement
+   leurs chemins internes et cassent des qu'ils sont invoques depuis un
+   dossier contenant un espace. Fix : SDK, sources PHP et sortie `nmake`
+   compilent desormais dans `C:\mbcrypt-php-static-build\` (chemin fixe,
+   sans espace), independant de l'emplacement du depot.
+2. **Flags invalides pour `phpsdk_deps.bat`** -- l'appel utilisait `--x64`
+   (qui n'existe pas) sans commande (`--update`/`--check`), donc l'outil se
+   contentait d'afficher son aide. Fix : `--update --branch X --arch x64
+   --deps "..."`.
+3. **Environnement VC++ initialise a la main** -- appeler `vcvarsall.bat`
+   directement (au lieu du bootstrap officiel du SDK) laisse un marqueur
+   interne ("Active CRT") vide, que `phpsdk_deps.php` verifie et rejette
+   avec `Active CRT name '' differs from the branch CRT name 'vs16'`. Fix :
+   les etapes de build (deps, buildconf, configure, nmake) sont ecrites
+   dans un script de tache, execute via `phpsdk-vs16-x64.bat -t <tache.bat>`
+   -- c'est ce bootstrap officiel qui configure vcvarsall ET le marqueur CRT.
+4. **Chemin de tache quote** -- `phpsdk-starter.bat` recopie son argument
+   `-t` tel quel dans une variable puis le re-quote plus loin ; un chemin
+   deja quote en argument devient donc doublement quote et casse
+   ("La syntaxe du nom de fichier... est incorrecte"). Fix : le chemin de
+   tache est passe sans guillemets (sans risque ici car `C:\mbcrypt-php-static-build`
+   ne contient pas d'espace).
+5. **Parenthese batch mal fermee** -- `if errorlevel 1 ( echo ... & )` :
+   l'esperluette juste avant la parenthese fermante, sans commande apres,
+   fait echouer le parseur cmd.exe (`) etait inattendu`) -- independamment
+   du resultat du test `errorlevel`. Fix : suppression du `&` final.
+6. **`NoDefaultCurrentDirectoryInExePath=1`** -- cette variable
+   d'environnement (definie sur cette machine, probablement par les VS
+   Build Tools) retire le repertoire courant de la recherche implicite
+   d'executables pour `cmd.exe`. Un `call buildconf.bat` en nom nu echoue
+   alors avec "n'est pas reconnu" **meme si le fichier est bien present**
+   dans le repertoire courant. Fix : `call .\buildconf.bat`.
+7. **`--with-curl` non lie** -- une fois la compilation elle-meme reussie
+   (y compris `mbcrypt_lib.c` et `mbcryptload.c`, sans aucune erreur), la
+   derniere etape (edition de liens) echouait avec des symboles Brotli
+   introuvables (`BrotliDecoderVersion`...) : `libcurl_a.lib` du SDK deps
+   depend de Brotli sans qu'un `brotli.lib` correspondant soit fourni.
+   mbcryptload n'a pas besoin de curl. Fix : `--with-curl` retire de
+   `$CONFIGURE_OPTS`.
+
+Verification finale (2026-07-17, PHP 8.3.16) : `mbcrypt_lib.c` et
+`mbcryptload.c` compilent sans avertissement, `php.exe --ri mbcryptload`
+confirme le module statique actif, et `test/php83/calcul.encrypted.php`
+se dechiffre et s'execute correctement -- y compris appele **directement**
+(`php.exe calcul.encrypted.php`, mot de passe fourni via
+`mbcryptload.password` dans `php.ini`, sans loader intermediaire).
 
 ---
 
@@ -364,8 +433,14 @@ build/
       php-8.2\php.exe              PHP 8.2 avec mbcryptload statique
       php-8.3\php.exe              PHP 8.3 avec mbcryptload statique
   devel-packs/               Devel packs PHP TS+NTS (headers + .lib pour build dynamique)
-  php-sdk-tools/             PHP SDK binary tools (pour build statique)
-  php-static-builds/         Sources PHP et logs de build statique
+
+C:\mbcrypt-php-static-build\   Hors du depot -- chemin fixe sans espace (voir
+  php-sdk-tools/                  "Piege connu" ci-dessus), independant de
+  php-static-builds/              l'emplacement du depot lui-meme
+    <version>\                 Sources PHP extraites, mbcryptload copie dans ext\
+    deps-8.x\                  Dependances binaires (zlib, openssl, sqlite3...)
+    build_php8.x.bat           Script de tache (deps + buildconf + configure + nmake)
+    build_php8.x.log/_err.log  Logs de la derniere compilation
 ```
 
 ---
