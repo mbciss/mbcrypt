@@ -1,0 +1,54 @@
+/*
+   +----------------------------------------------------------------------+
+   | mbcryptload PHP extension header                                     |
+   +----------------------------------------------------------------------+
+*/
+#ifndef PHP_MBCRYPTLOAD_H
+#define PHP_MBCRYPTLOAD_H
+
+extern zend_module_entry mbcryptload_module_entry;
+#define phpext_mbcryptload_ptr &mbcryptload_module_entry
+
+#define PHP_MBCRYPTLOAD_VERSION "3.0.0"
+
+#if defined(ZTS) && defined(COMPILE_DL_MBCRYPTLOAD)
+ZEND_TSRMLS_CACHE_EXTERN()
+#endif
+
+PHP_FUNCTION(mbcryptload_set_password);
+PHP_FUNCTION(mbcryptload_encrypt_file);
+PHP_FUNCTION(mbcryptload_version);
+
+/* ------------------------------------------------------------------
+ * Argument info (required by PHP 8.x to suppress arginfo warnings)
+ * ------------------------------------------------------------------ */
+
+/* bool mbcryptload_set_password(string $password) */
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(
+    arginfo_mbcryptload_set_password, 0, 1, _IS_BOOL, 0)
+    ZEND_ARG_TYPE_INFO(0, password, IS_STRING, 0)
+ZEND_END_ARG_INFO()
+
+/* bool mbcryptload_encrypt_file(
+ *     string $source, string $dest
+ *     [, string $password [, bool $use_aes = false]] ) */
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(
+    arginfo_mbcryptload_encrypt_file, 0, 2, _IS_BOOL, 0)
+    ZEND_ARG_TYPE_INFO(0, source,  IS_STRING, 0)
+    ZEND_ARG_TYPE_INFO(0, dest,    IS_STRING, 0)
+    ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, password, IS_STRING, 1, "null")
+    ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, use_aes,  _IS_BOOL,  0, "false")
+ZEND_END_ARG_INFO()
+
+/* string mbcryptload_version() */
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(
+    arginfo_mbcryptload_version, 0, 0, IS_STRING, 0)
+ZEND_END_ARG_INFO()
+
+PHP_MINIT_FUNCTION(mbcryptload);
+PHP_MSHUTDOWN_FUNCTION(mbcryptload);
+PHP_RINIT_FUNCTION(mbcryptload);
+PHP_RSHUTDOWN_FUNCTION(mbcryptload);
+PHP_MINFO_FUNCTION(mbcryptload);
+
+#endif /* PHP_MBCRYPTLOAD_H */

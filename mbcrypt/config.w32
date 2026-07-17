@@ -1,0 +1,70 @@
+// vim:ft=javascript
+// ---------------------------------------------------------------------------
+// mbcryptload PHP extension — Windows (PHP SDK) build configuration
+// ---------------------------------------------------------------------------
+
+ARG_ENABLE("mbcryptload", "Enable mbcryptload PHP encryption support", "no");
+
+if (PHP_MBCRYPTLOAD != "no") {
+
+    // -----------------------------------------------------------------------
+    // zlib (required) — reuse PHP's own zlib configuration
+    // -----------------------------------------------------------------------
+    if (PHP_ZLIB != "no" ||
+        CHECK_LIB("zlib_a.lib;zlib.lib", "mbcryptload", PHP_MBCRYPTLOAD) &&
+        CHECK_HEADER_ADD_INCLUDE("zlib.h", "CFLAGS_MBCRYPTLOAD")) {
+
+        ADD_FLAG("CFLAGS_MBCRYPTLOAD", "/DZLIB_WINAPI");
+        if (PHP_ZLIB != "no") {
+            ADD_EXTENSION_DEP("mbcryptload", "zlib");
+        }
+
+        // -------------------------------------------------------------------
+        // OpenSSL (optional — enables AES-256-GCM)
+        // -------------------------------------------------------------------
+        var have_ssl = false;
+
+        // Look for OpenSSL in the PHP SDK and common install locations
+        var ssl_dirs = [
+            PHP_PHP_BUILD,
+            PHP_PHP_BUILD + "\\deps",
+            "C:\\OpenSSL-Win64",
+            "C:\\Program Files\\OpenSSL-Win64",
+            "C:\\Program Files (x86)\\OpenSSL-Win32"
+        ];
+
+        for (var i = 0; i < ssl_dirs.length; i++) {
+            var inc = ssl_dirs[i] + "\\include";
+            var lib = ssl_dirs[i] + "\\lib";
+            if (FSO.FileExists(inc + "\\openssl\\evp.h")) {
+                if (CHECK_LIB("libssl.lib;ssleay32.lib", "mbcryptload", lib) &&
+                    CHECK_LIB("libcrypto.lib;libeay32.lib", "mbcryptload", lib)) {
+                    ADD_FLAG("CFLAGS_MBCRYPTLOAD",
+                        "/I" + inc + " /DMBCRYPT_HAS_OPENSSL=1");
+                    have_ssl = true;
+                    MESSAGE("mbcryptload: OpenSSL found in " + ssl_dirs[i] +
+                            " — AES-256-GCM enabled");
+                    break;
+                }
+            }
+        }
+
+        if (!have_ssl) {
+            MESSAGE("mbcryptload: OpenSSL not found — " +
+                    "legacy XOR mode only (no AES-256-GCM)");
+        }
+
+        // -------------------------------------------------------------------
+        // Build
+        // -------------------------------------------------------------------
+        EXTENSION("mbcryptload", "mbcryptload.c mbcrypt_lib.c",
+                  PHP_MBCRYPTLOAD_SHARED);
+
+        AC_DEFINE("HAVE_MBCRYPTLOAD", 1, "Have mbcryptload support");
+        MESSAGE("mbcryptload: configured successfully");
+
+    } else {
+        WARNING("mbcryptload: zlib not found — extension disabled");
+        PHP_MBCRYPTLOAD = "no";
+    }
+}

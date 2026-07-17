@@ -1,0 +1,7 @@
+# Claude Code local settings
+.claude/settings.local.json
+
+# Build artifacts (compiled binaries, downloaded devel packs)
+build/dist/*.dll
+build/dist/*.exe
+build/devel-packs/

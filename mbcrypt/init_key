@@ -1,0 +1,102 @@
+#!/usr/bin/perl
+# ===========================================================================
+# init_key — Generate a new random encryption key for mbcrypt
+#
+# Usage:  perl init_key   (run from the mbcrypt/ directory)
+#
+# What it does:
+#   1. Generates 16 random numbers (1..32766) → new MBCRYPTKEY in mbcrypt_lib.h
+#   2. Generates 4 unique index-swap pairs  → new scramble in mbcrypt_lib.c
+#
+# After running, recompile BOTH mbcrypt (encoder) AND the PHP extension.
+# Both must share the same key, otherwise decryption will fail.
+# ===========================================================================
+use strict;
+use warnings;
+use FindBin qw($Bin);
+use Time::HiRes qw(gettimeofday);
+
+my ($sec, $usec) = gettimeofday();
+srand($sec * 1_000_000 + $usec);
+
+my $lib_h = "$Bin/mbcrypt_lib.h";
+my $lib_c = "$Bin/mbcrypt_lib.c";
+
+# ---------------------------------------------------------------------------
+# 1. Generate 16 non-zero random key values (range 1..32766)
+# ---------------------------------------------------------------------------
+my @keys;
+for (1..16) {
+    push @keys, int(rand(32766)) + 1;
+}
+my $key_str = join(",", @keys);
+
+print "New MBCRYPTKEY: $key_str\n\n";
+
+# ---------------------------------------------------------------------------
+# 2. Generate 4 unique index-swap pairs (indices 0..15, no repeats)
+# ---------------------------------------------------------------------------
+my @pairs;
+my %used;
+
+while (@pairs < 4) {
+    my $a = int(rand(16));
+    my $b = int(rand(16));
+    next if $a == $b;
+    my $k = $a < $b ? "$a-$b" : "$b-$a";
+    next if $used{$k}++;
+    push @pairs, [$a, $b];
+}
+
+# Build the rre block (one-liner swaps using 'tmp')
+my $rre_block = "";
+for my $pair (@pairs) {
+    my ($a, $b) = @$pair;
+    $rre_block .= sprintf("    tmp = k[%d]; k[%d] = k[%d]; k[%d] = tmp;\n",
+                           $a, $a, $b, $b);
+}
+
+print "New scramble pairs:\n";
+for my $pair (@pairs) {
+    printf "  k[%d] <-> k[%d]\n", @$pair;
+}
+print "\n";
+
+# ---------------------------------------------------------------------------
+# 3. Update mbcrypt_lib.h — replace MBCRYPTKEY line
+# ---------------------------------------------------------------------------
+{
+    open my $fh, '<', $lib_h or die "Cannot open $lib_h: $!\n";
+    my $content = do { local $/; <$fh> };
+    close $fh;
+
+    unless ($content =~ s/^#define MBCRYPTKEY [^\n]+/#define MBCRYPTKEY $key_str/m) {
+        die "MBCRYPTKEY not found in $lib_h\n";
+    }
+
+    open $fh, '>', $lib_h or die "Cannot write $lib_h: $!\n";
+    print $fh $content;
+    close $fh;
+    print "Updated: $lib_h\n";
+}
+
+# ---------------------------------------------------------------------------
+# 4. Update mbcrypt_lib.c — replace block between // start_rre and // end_rre
+# ---------------------------------------------------------------------------
+{
+    open my $fh, '<', $lib_c or die "Cannot open $lib_c: $!\n";
+    my $content = do { local $/; <$fh> };
+    close $fh;
+
+    unless ($content =~ s{(// start_rre\n).*?(    // end_rre)}{$1$rre_block    $2}s) {
+        die "Markers // start_rre ... // end_rre not found in $lib_c\n";
+    }
+
+    open $fh, '>', $lib_c or die "Cannot write $lib_c: $!\n";
+    print $fh $content;
+    close $fh;
+    print "Updated: $lib_c\n";
+}
+
+print "\nDone. Remember to recompile mbcrypt AND the PHP extension!\n";
+print "They must share the same key.\n";

@@ -1,125 +1,150 @@
-# What's FRICC2?
+# MBCRYPT v3
 
-FRICC2 is a PHP Script encryption tool. When you are developing a commercial software using PHP, the script can be distributed as encrypted up until just before execution. Thanks for PHP-Screw.
+MBCRYPT is a PHP script encryption tool. When distributing commercial PHP software, files can be encrypted and are decrypted transparently at runtime by a PHP extension — the original script is never written to disk.
 
-[**中文版说明**](./README_CN.md)
-
-
+Based on PHP-Screw, rewritten by CISSE Mohamed Bassirou.
 
 ## Features
 
-1. Less file handle open or read.
-2. Compress supported, small size of target files.
-3. Fix serval memory Leak.
-4. More performance when php open files.
-5. Supported Bundle in PHP with static.
-6. Tested on Ubuntu / CentOS / Openwrt.
-7. Tested in x86_64 / MIPS / ARM Processors.
-8. Supported PHP 8(include JIT), Tested Memory Leak.
+- **Real AES-256-GCM encryption** with PBKDF2-SHA256 key derivation (100 000 iterations, random salt + nonce per file)
+- **GCM authentication tag** — any file tampering is detected before execution
+- **Legacy XOR mode** kept for backward compatibility with V2-encrypted files
+- **Backward-compatible**: V2 files (old format) are still decrypted transparently
+- **Heap-only zlib**: no stack buffers — robust for large files, no stack overflow
+- **Batch encryption** — encrypt an entire directory tree recursively (`-r`)
+- **Thread-safe PHP extension** (ZTS / NTS)
+- **PHP 7.0 – 8.x** compatible (including PHP 8.1+ `zend_string*` changes)
+- Tested on Ubuntu / CentOS / OpenWRT — x86\_64 / ARM / MIPS
+- Supports PHP JIT (PHP 8+)
 
+## File format V3
 
+```
+[9 bytes]  Tag          "MB_ENC_V3"
+[1 byte]   Version      3
+[1 byte]   Method       0 = legacy XOR  |  1 = AES-256-GCM
+[6 bytes]  Reserved     (zero-padded)
+--- AES mode only ---
+[16 bytes] PBKDF2 salt
+[12 bytes] GCM nonce (IV)
+[16 bytes] GCM authentication tag
+--- Data ---
+[N bytes]  zlib-compressed plaintext, encrypted
+```
 
+## Requirements
 
+| Dependency | Role | Notes |
+|------------|------|-------|
+| zlib       | Compression | Required |
+| OpenSSL ≥ 1.1 | AES-256-GCM | Optional — without it, only XOR mode |
 
-## Requirement
+### PHP version support
 
-### PHP Version
+| PHP Version | Status |
+|-------------|--------|
+| PHP 8.x     | Recommended |
+| PHP 7.4.x   | Supported |
+| PHP 7.0–7.3 | Supported |
 
-| PHP Version       | Status          | Notice                                               |
-| ----------------- | --------------- | ---------------------------------------------------- |
-| PHP 8.X           | Static / Shared | Recommend                                            |
-| PHP 7.4.X         | Static / Shared | Recommend                                            |
-| PHP 7.0.X / 7.3.X | Static / Shared | Runtime Little Memory Leak (auto free when php exit) |
-| Other Version     | NO TEST         | NO TEST                                              |
-
-### ZLIB Support in PHP
-
-PHP must be compiled with the "--with-zlib" option.
-
-
-
-
+PHP must be compiled with `--with-zlib`.
 
 ## Installation
 
-### Get Source
+### 1. Generate a unique key (recommended)
 
 ```bash
-# git clone source
-cd ~/
-git clone https://github.com/hoowa/FRICC2.git
-
-# optional init key (Set Better Secure different)
-chmod +x ~/FRICC2/fricc2load/init_key
-~/FRICC2/fricc2load/init_key
-
-# Requirement Example CentOS 7.9
-yum groupinstall "Development Tools"
-yum install zlib-static zlib-devel
-
-# Requirement Example Ubuntu 20.04
-sudo apt install build-essential pkg-config autoconf zlib1g-dev
+# From the mbcrypt/ directory
+perl init_key
+# Then recompile both the encoder AND the PHP extension
 ```
 
-### Build PHP Extension (Shared)
+### 2. Build the PHP extension (shared)
 
 ```bash
-# Compile fricc2load
-cd ~/FRICC2/fricc2load/
+cd mbcrypt/
 phpize
-./configure
+./configure --enable-mbcryptload          # OpenSSL auto-detected
 make
-make install
+sudo make install
 
-# Append this line to php.ini
-extension=fricc2load.so
+# Add to php.ini
+echo "extension=mbcryptload.so" >> /etc/php/8.x/cli/php.ini
 
-# Test in CLI
-php -m|grep fricc2load
-
-# Restart the web server / your php daemon as you need
+# Verify
+php -m | grep mbcryptload
+php --ri mbcryptload
 ```
 
-### Build Encode Program
+### 3. Build the encoder CLI
 
 ```bash
-# Compile Encode Program
-cd ~/FRICC2/fricc2/
-make
-cp fricc2 /usr/bin/
+cd mbcrypt/
+make                # auto-detects OpenSSL via pkg-config
+sudo make install   # installs to /usr/local/bin/mbcrypt
+```
 
-# Test Create test.php
+## Usage
+
+### Encrypt a single file
+
+```bash
+# Legacy XOR mode (no password required)
+mbcrypt -o output.php source.php
+
+# AES-256-GCM mode (requires OpenSSL build)
+mbcrypt -p "my-strong-password" -o output.php source.php
+```
+
+### Encrypt an entire directory recursively
+
+```bash
+# Encrypts all .php files; creates output_dir/ with the same structure
+mbcrypt -r -o output_dir/ source_dir/
+mbcrypt -r -p "password" -o output_dir/ source_dir/
+```
+
+### PHP runtime API
+
+```php
 <?php
-	echo "hello fricc2\n";
-?>
-fricc2 -o test_new.php test.php
-php ./test_new.php
-# Screen output:
-hello fricc2
+// Required for AES-encrypted files
+mbcryptload_set_password("my-strong-password");
+
+// Encrypt a file from PHP
+mbcryptload_encrypt_file("source.php", "output.php");                      // XOR
+mbcryptload_encrypt_file("source.php", "output.php", "password", true);   // AES
+
+// Get extension version
+echo mbcryptload_version(); // "3.0.0"
 ```
 
-
-
-## Others
-
-### Optional Build PHP Extension (Static)
+### Set password via environment variable
 
 ```bash
-# example of your php source in ~/php-7.4.22/
-cd ~/php-7.4.22
-cp -avf ~/FRICC2/fricc2load/ ./ext/
-./buildconf --force
-
-# append --enable-fricc2load=static --with-zlib to configure (example):
-./configure --enable-fricc2load=static --with-zlib
-make
-make install
-
-# check modules
-php -m|grep fricc2load
+export MBCRYPTLOAD_PASSWORD="my-strong-password"
+php script.php
 ```
 
-### Author
+## Build PHP extension statically
 
-Sun Bing <hoowa.sun@gmail.com>
+```bash
+# Copy extension into PHP source tree
+cp -avf mbcrypt/ ~/php-8.x.y/ext/mbcryptload/
+cd ~/php-8.x.y
+./buildconf --force
+./configure --enable-mbcryptload=static --with-zlib
+make && make install
+```
 
+## Security notes
+
+- **AES-256-GCM** is authenticated encryption: a wrong password or tampered file returns an error instead of garbage output.
+- The **XOR legacy key** is compiled into both the encoder and the extension — run `init_key` to personalise it before distributing.
+- The password for AES files is **never stored on disk** — set it via `mbcryptload_set_password()` or the `MBCRYPTLOAD_PASSWORD` environment variable.
+- `show_source()` and `highlight_file()` are blocked on encrypted files.
+
+## Author
+
+CISSE Mohamed Bassirou — <mohamedbachir.cisse@gmail.com>  
+Original code: sun bing <hoowa.sun@gmail.com>
