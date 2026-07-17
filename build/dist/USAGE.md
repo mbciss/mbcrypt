@@ -1,18 +1,58 @@
 # MBCRYPT v3 - Guide d'utilisation
 
 Auteur : CISSE Mohamed Bassirou  
-Date   : 2026-04-08
+Date   : 2026-07-17
 
 ---
 
 ## Contenu du dossier dist/
 
 ```
-mbcrypt.exe                        Encodeur CLI (chiffrement de fichiers PHP)
-php_mbcryptload_php81_ts.dll       Extension PHP pour PHP 8.1 (ZTS x64)
-php_mbcryptload_php82_ts.dll       Extension PHP pour PHP 8.2 (ZTS x64)
-php_mbcryptload_php83_ts.dll       Extension PHP pour PHP 8.3 (ZTS x64)
+mbcrypt.exe                         Encodeur CLI (chiffrement de fichiers PHP)
+
+php_mbcryptload_php80_ts.dll        PHP 8.0 - Thread Safe   (Apache mod_php, etc.)
+php_mbcryptload_php80_nts.dll       PHP 8.0 - Non Thread Safe (PHP-FPM, CLI)
+php_mbcryptload_php81_ts.dll        PHP 8.1 - Thread Safe
+php_mbcryptload_php81_nts.dll       PHP 8.1 - Non Thread Safe
+php_mbcryptload_php82_ts.dll        PHP 8.2 - Thread Safe
+php_mbcryptload_php82_nts.dll       PHP 8.2 - Non Thread Safe
+php_mbcryptload_php83_ts.dll        PHP 8.3 - Thread Safe
+php_mbcryptload_php83_nts.dll       PHP 8.3 - Non Thread Safe
+php_mbcryptload_php84_ts.dll        PHP 8.4 - Thread Safe
+php_mbcryptload_php84_nts.dll       PHP 8.4 - Non Thread Safe
+php_mbcryptload_php85_ts.dll        PHP 8.5 - Thread Safe
+php_mbcryptload_php85_nts.dll       PHP 8.5 - Non Thread Safe
 ```
+
+Toutes les DLLs sont compilees x64. PHP 8.0-8.3 utilisent le toolchain
+VS2019 (vs16) ; PHP 8.4-8.5 utilisent VS2022 (vs17) — ce detail n'a
+aucun impact cote utilisateur, seule la version de PHP compte.
+
+---
+
+## 0. Choisir la bonne DLL : TS ou NTS ?
+
+Chaque version de PHP est compilee dans l'un des deux modes suivants,
+et l'extension doit correspondre exactement :
+
+| Mode    | Signification          | Utilise avec                              |
+|---------|-------------------------|--------------------------------------------|
+| **TS**  | Thread Safe (ZTS)       | Apache `mod_php`, IIS FastCGI, Laragon par defaut |
+| **NTS** | Non Thread Safe         | PHP-FPM, la plupart des installations Linux, CLI seul |
+
+Pour savoir quel mode utilise votre PHP :
+
+```bat
+php.exe -i | findstr "Thread Safety"
+```
+
+```
+Thread Safety => enabled     -> prendre la DLL *_ts.dll
+Thread Safety => disabled    -> prendre la DLL *_nts.dll
+```
+
+Charger la mauvaise variante empeche PHP de demarrer (erreur de
+chargement de module au demarrage).
 
 ---
 
@@ -20,7 +60,7 @@ php_mbcryptload_php83_ts.dll       Extension PHP pour PHP 8.3 (ZTS x64)
 
 ### Laragon (Windows)
 
-Copier la DLL correspondant a votre version de PHP :
+Copier la DLL correspondant a votre version de PHP et son mode (TS/NTS) :
 
 ```bat
 copy php_mbcryptload_php83_ts.dll  C:\laragon\bin\php\php-8.3.16-Win32-vs16-x64\ext\php_mbcryptload.dll
@@ -227,6 +267,10 @@ mbcryptload_version() : string   // retourne "3.0.0"
 [N octets]  Contenu PHP compresse (zlib) puis chiffre
 ```
 
+> Pour le detail algorithmique complet (pipeline de chiffrement,
+> derivation de cle, mecanisme d'interception a l'execution),
+> voir `mbcrypt/ALGORITHME.md`.
+
 ---
 
 ## 6. Securite
@@ -249,8 +293,9 @@ mbcryptload_version() : string   // retourne "3.0.0"
 2. Chiffrer l'application :
        mbcrypt.exe -r -p "MOT_DE_PASSE_FORT" -o app_chiffree\ app_source\
 
-3. Copier la DLL dans le serveur cible :
+3. Copier la DLL correspondant a la version PHP ET au mode (TS/NTS) du serveur cible :
        php_mbcryptload_php83_ts.dll  ->  ext\php_mbcryptload.dll
+       (voir section 0 pour determiner TS ou NTS)
 
 4. Activer l'extension (php.ini) :
        extension=php_mbcryptload
@@ -269,3 +314,20 @@ mbcryptload_version() : string   // retourne "3.0.0"
 
 6. Deployer uniquement app_chiffree\ (sans app_source\)
 ```
+
+---
+
+## 8. Journal des correctifs
+
+### 2026-07-17 — Crash au demarrage / arret de PHP (versions TS)
+
+Les DLLs `*_ts.dll` generees avant cette date pouvaient faire planter
+PHP au demarrage (`php -m`, ou tout script) des que l'extension etait
+chargee, meme sans appeler aucune fonction de mbcryptload. Cause :
+un pointeur de fonction de nettoyage (globals destructor) enregistre
+par l'extension etait appele par PHP apres que Windows ait deja
+decharge la DLL en memoire.
+
+**Toutes les DLLs de ce dossier integrent le correctif.** Si vous
+utilisez une DLL compilee avant le 2026-07-17, recompilez avec
+`build\build-windows-all.ps1` ou `build\build-windows.ps1`.

@@ -1,21 +1,28 @@
 # MBCRYPT - Guide de compilation Windows
 
 Auteur : CISSE Mohamed Bassirou  
-Date   : 2026-04-08  
-Cible  : PHP 8.1 / 8.2 / 8.3 (ZTS, x64, VS16)
+Date   : 2026-07-17  
+Cible  : PHP 8.0 a 8.5, TS + NTS, x64 (VS16 pour 8.0-8.3, VS17 pour 8.4-8.5)
 
-## Deux modes de compilation
+## Trois scripts de compilation
 
 | Mode | Script | Resultat | Usage |
 |------|--------|----------|-------|
-| **Extension dynamique** | `build-windows.ps1` | `.dll` a charger dans php.ini | Laragon, serveur existant |
+| **Extension dynamique (3 versions)** | `build-windows.ps1` | `.dll` TS pour PHP 8.1/8.2/8.3, auto-installees dans Laragon | Laragon, iteration rapide |
+| **Extension dynamique (matrice complete)** | `build-windows-all.ps1` | `.dll` TS+NTS pour PHP 8.0 a 8.5 (12 DLLs) | Distribution multi-versions |
 | **PHP statique** | `build-windows-static.ps1` | `php.exe` complet, mbcryptload integre | Distribution autonome |
+
+`build-windows-all.ps1` est **autonome** : contrairement a `build-windows.ps1`,
+il n'a pas besoin d'un PHP complet installe dans Laragon — il compile
+directement contre la bibliotheque (`.lib`) fournie dans chaque devel
+pack telecharge, et bascule automatiquement de toolchain (VS2019/vs16
+pour PHP 8.0-8.3, VS2022/vs17 pour PHP 8.4-8.5) selon la version cible.
 
 ---
 
 ## Prerequis
 
-### 1. Visual Studio 2019 Build Tools
+### 1. Visual Studio 2019 Build Tools (PHP 8.0 a 8.3)
 
 Telecharger depuis : https://visualstudio.microsoft.com/fr/downloads/  
 Choisir "Build Tools pour Visual Studio 2019"  
@@ -27,9 +34,29 @@ C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools\
   VC\Tools\MSVC\14.29.30133\bin\Hostx64\x64\cl.exe
 ```
 
+### 1bis. Visual Studio 2022 Build Tools (PHP 8.4 et 8.5)
+
+A partir de PHP 8.4, windows.php.net ne publie plus de binaires/devel
+packs VS16 : le toolchain minimum devient VS2022 (vs17). Necessaire
+uniquement si vous ciblez PHP 8.4/8.5 (`build-windows-all.ps1`).
+
+Telecharger depuis : https://visualstudio.microsoft.com/fr/downloads/  
+Choisir "Build Tools pour Visual Studio 2022" (ou Community)  
+Meme composant requis : **Developpement Desktop en C++**
+
+Chemin attendu par le script :
+```
+C:\Program Files\Microsoft Visual Studio\2022\Community\
+  VC\Tools\MSVC\14.43.34808\bin\Hostx64\x64\cl.exe
+```
+
+> Les deux versions de Visual Studio (2019 et 2022) peuvent coexister
+> sur la meme machine sans conflit — `build-windows-all.ps1` selectionne
+> le bon toolchain automatiquement selon la version PHP compilee.
+
 ### 2. Windows SDK 10
 
-Installe automatiquement avec VS2019 Build Tools.  
+Installe automatiquement avec VS Build Tools (2019 ou 2022).  
 Version utilisee : **10.0.22621.0**
 
 Chemin :
@@ -40,15 +67,23 @@ C:\Program Files (x86)\Windows Kits\10\
 ### 3. Laragon (Apache + PHP)
 
 Telecharger depuis : https://laragon.org/download/  
-Fournit :
-- zlib (`httpd-2.4.54-win64-VS16\include` + `lib\zlib.lib`)
-- PHP installations : `C:\laragon\bin\php\php-8.x.x-Win32-vs16-x64\`
+Fournit deux builds de zlib, un par toolchain :
+- zlib VS16 (`httpd-2.4.54-win64-VS16\include` + `lib\zlib.lib`) — pour PHP 8.0-8.3
+- zlib VS17 (`httpd-2.4.62-...-win64-VS17\include` + `lib\zlib.lib`) — pour PHP 8.4-8.5
 
-Chemin zlib attendu :
+Chemins zlib attendus :
 ```
 C:\laragon\bin\apache\httpd-2.4.54-win64-VS16\include\zlib.h
 C:\laragon\bin\apache\httpd-2.4.54-win64-VS16\lib\zlib.lib
+
+C:\laragon\bin\apache\httpd-2.4.62-240904-win64-VS17\include\zlib.h
+C:\laragon\bin\apache\httpd-2.4.62-240904-win64-VS17\lib\zlib.lib
 ```
+
+`build-windows.ps1` a en plus besoin d'installations PHP completes
+dans Laragon (`C:\laragon\bin\php\php-8.x.x-Win32-vs16-x64\`) pour
+l'auto-copie de la DLL compilee dans `ext\`. `build-windows-all.ps1`
+n'en a pas besoin (il se sert du `.lib` du devel pack).
 
 ### 4. OpenSSL Win64 (optionnel - pour AES-256-GCM)
 
@@ -63,6 +98,8 @@ C:\Program Files\OpenSSL-Win64\lib\VC\x64\MD\libcrypto.lib
 ```
 
 Sans OpenSSL, le mode AES-256-GCM est desactive. Seul le mode XOR legacy reste disponible.
+Cette bibliotheque OpenSSL (liee en `/MD`, UCRT) est partagee entre les
+deux toolchains VS2019/VS2022 sans recompilation.
 
 ---
 
@@ -88,6 +125,41 @@ php_mbcryptload_php81_ts.dll   (~20 KB)
 php_mbcryptload_php82_ts.dll   (~20 KB)
 php_mbcryptload_php83_ts.dll   (~20 KB)
 ```
+
+### Mode 1bis -- Extension dynamique, matrice complete (TS+NTS, PHP 8.0-8.5)
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File build\build-windows-all.ps1
+```
+
+Le script :
+1. Verifie les deux toolchains (cl.exe VS2019 et VS2022)
+2. Pour chacune des 6 versions PHP (8.0.30, 8.1.10, 8.2.15, 8.3.16,
+   8.4.23, 8.5.8) et chacun des 2 modes (TS, NTS) :
+   - telecharge le devel pack correspondant depuis windows.php.net
+     (releases courantes, puis `archives/` en repli pour les versions
+     obsoletes)
+   - compile en liant directement contre le `.lib` fourni dans le
+     devel pack (`lib\php8ts.lib` en TS, `lib\php8.lib` en NTS) —
+     aucune installation PHP complete requise
+3. Bascule automatiquement de toolchain (vs16/vs17) selon la version
+
+Resultat dans `build\dist\` (12 DLLs) :
+```
+php_mbcryptload_php80_ts.dll    php_mbcryptload_php80_nts.dll
+php_mbcryptload_php81_ts.dll    php_mbcryptload_php81_nts.dll
+php_mbcryptload_php82_ts.dll    php_mbcryptload_php82_nts.dll
+php_mbcryptload_php83_ts.dll    php_mbcryptload_php83_nts.dll
+php_mbcryptload_php84_ts.dll    php_mbcryptload_php84_nts.dll
+php_mbcryptload_php85_ts.dll    php_mbcryptload_php85_nts.dll
+```
+
+Pour cibler d'autres versions/patchs, modifier le tableau `$MATRIX`
+en tete du script (`Ver`, `FullVer`, `Toolset` : `vs16` ou `vs17`).
+
+> Ce script n'installe rien automatiquement dans Laragon (contrairement
+> a `build-windows.ps1`) — voir section "Installation dans Laragon"
+> plus bas pour le deploiement manuel de la bonne DLL (TS/NTS).
 
 #### Compilation manuelle (une seule version)
 
@@ -210,6 +282,40 @@ extension_dir=ext
    C:\laragon\bin\php\php-8.3.16-Win32-vs16-x64\php.exe --ri mbcryptload
    ```
 
+> Avant de copier la DLL, verifier si le PHP cible est TS ou NTS
+> (`php.exe -i | findstr "Thread Safety"`) et prendre la DLL
+> correspondante — voir `build\dist\USAGE.md` section 0.
+
+---
+
+## Piege connu : globals ZTS et DLL dynamique (corrige)
+
+Jusqu'au 2026-07-17, les DLLs `*_ts.dll` faisaient planter PHP au
+demarrage (meme sans appeler aucune fonction de l'extension — un
+simple `php -m` suffisait a reproduire). Cause :
+
+- L'extension enregistre ses globals via `ZEND_INIT_MODULE_GLOBALS`
+  avec un `globals_dtor` (fonction de nettoyage).
+- Ce destructeur est invoque par TSRM tres tard dans l'arret du
+  processus (`tsrm_shutdown()`), *apres* que Windows a deja decharge
+  la DLL de l'extension (`FreeLibrary`).
+- Le pointeur de fonction pointe alors vers une page memoire deja
+  liberee -> acces memoire invalide -> crash.
+
+**Correctif** : ne plus enregistrer de `globals_dtor` du tout (`NULL`
+passe a `ZEND_INIT_MODULE_GLOBALS`) ; le nettoyage est fait a la main
+dans `PHP_MSHUTDOWN_FUNCTION`, qui s'execute pendant que le module est
+encore charge. Cela a revele un second bug : le mot de passe stocke
+dans les globals etait alloue avec `estrndup()` (memoire **liee a la
+requete PHP**), automatiquement recyclee par Zend a la fin de chaque
+requete — donc le `efree()` manuel dans MSHUTDOWN devenait un
+double-free (`zend_mm_heap corrupted`). Le champ est desormais alloue
+avec `pestrndup()`/`pefree()` (memoire **persistante**), coherente
+avec le fait qu'il doit survivre a la requete qui l'a definie.
+
+Voir `mbcrypt/ALGORITHME.md` section "Cycle de vie du module" pour le
+detail, et le commit `62461a5` pour le correctif complet.
+
 ---
 
 ## Drapeaux importants
@@ -237,22 +343,27 @@ mbcrypt/
   config.m4             Build Unix (phpize/configure)
   config.w32            Build Windows (PHP SDK, statique et dynamique)
   init_key              Script Perl : regenerer la cle XOR unique
+  ALGORITHME.md          Documentation algorithmique du code (FR)
 
 build/
-  build-windows.ps1         Extension dynamique (.dll) pour Laragon
+  build-windows.ps1         Extension dynamique (.dll) pour Laragon, PHP 8.1-8.3 TS
+  build-windows-all.ps1     Extension dynamique, matrice complete PHP 8.0-8.5 TS+NTS
   build-windows-static.ps1  PHP complet avec mbcryptload statique
   build-ubuntu.sh            Build Linux (extension .so + CLI)
   dist/
-    php_mbcryptload_php81_ts.dll   Extension dynamique PHP 8.1
-    php_mbcryptload_php82_ts.dll   Extension dynamique PHP 8.2
-    php_mbcryptload_php83_ts.dll   Extension dynamique PHP 8.3
+    php_mbcryptload_php80_ts.dll   php_mbcryptload_php80_nts.dll
+    php_mbcryptload_php81_ts.dll   php_mbcryptload_php81_nts.dll
+    php_mbcryptload_php82_ts.dll   php_mbcryptload_php82_nts.dll
+    php_mbcryptload_php83_ts.dll   php_mbcryptload_php83_nts.dll
+    php_mbcryptload_php84_ts.dll   php_mbcryptload_php84_nts.dll
+    php_mbcryptload_php85_ts.dll   php_mbcryptload_php85_nts.dll
     mbcrypt.exe                    Encodeur CLI Windows
     USAGE.md                       Guide d'utilisation
     static/
       php-8.1\php.exe              PHP 8.1 avec mbcryptload statique
       php-8.2\php.exe              PHP 8.2 avec mbcryptload statique
       php-8.3\php.exe              PHP 8.3 avec mbcryptload statique
-  devel-packs/               Devel packs PHP (headers pour build dynamique)
+  devel-packs/               Devel packs PHP TS+NTS (headers + .lib pour build dynamique)
   php-sdk-tools/             PHP SDK binary tools (pour build statique)
   php-static-builds/         Sources PHP et logs de build statique
 ```
