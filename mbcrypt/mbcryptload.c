@@ -63,13 +63,12 @@ static void mbcryptload_globals_ctor(zend_mbcryptload_globals *g)
     g->ini_password = NULL;
 }
 
-static void mbcryptload_globals_dtor(zend_mbcryptload_globals *g)
-{
-    if (g->password) {
-        efree(g->password);
-        g->password = NULL;
-    }
-}
+/* No globals_dtor is registered with ZEND_INIT_MODULE_GLOBALS: on Windows,
+ * TSRM invokes it at tsrm_shutdown() time, which for a dynamically loaded
+ * (COMPILE_DL) ZTS extension happens after the DLL has already been
+ * unloaded — calling back into freed/unmapped code crashes the process.
+ * Cleanup is instead done unconditionally from MSHUTDOWN below, which is
+ * guaranteed to run while the module is still mapped. */
 
 /* ==================================================================
  * php.ini entries
@@ -223,10 +222,15 @@ PHP_FUNCTION(mbcryptload_set_password)
         Z_PARAM_STRING(pass, pass_len)
     ZEND_PARSE_PARAMETERS_END();
 
+    /* Persistent (pemalloc-backed) storage: this field is module-global
+     * and must survive past the end of the request that set it — a plain
+     * estrndup()/efree() pair is request-scoped and would be silently
+     * invalidated by Zend's end-of-request cleanup, corrupting the heap
+     * the next time it is freed (e.g. from MSHUTDOWN). */
     if (MBCRYPTLOAD_G(password)) {
-        efree(MBCRYPTLOAD_G(password));
+        pefree(MBCRYPTLOAD_G(password), 1);
     }
-    MBCRYPTLOAD_G(password) = estrndup(pass, pass_len);
+    MBCRYPTLOAD_G(password) = pestrndup(pass, pass_len, 1);
     RETURN_TRUE;
 }
 
@@ -326,7 +330,7 @@ PHP_MINIT_FUNCTION(mbcryptload)
 {
     ZEND_INIT_MODULE_GLOBALS(mbcryptload,
         mbcryptload_globals_ctor,
-        mbcryptload_globals_dtor);
+        NULL);
 
     REGISTER_INI_ENTRIES();
 
@@ -344,10 +348,14 @@ PHP_MSHUTDOWN_FUNCTION(mbcryptload)
 
     UNREGISTER_INI_ENTRIES();
 
-#ifndef ZTS
-    /* In non-ZTS builds globals_dtor is not called automatically */
-    mbcryptload_globals_dtor(&mbcryptload_globals);
-#endif
+    /* See comment on mbcryptload_globals_ctor above: cleanup is done here
+     * rather than via a globals_dtor registered with TSRM. password is
+     * persistently allocated (see mbcryptload_set_password), so pefree()
+     * is required here instead of efree(). */
+    if (MBCRYPTLOAD_G(password)) {
+        pefree(MBCRYPTLOAD_G(password), 1);
+        MBCRYPTLOAD_G(password) = NULL;
+    }
 
     return SUCCESS;
 }
