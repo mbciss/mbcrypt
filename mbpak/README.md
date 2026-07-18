@@ -140,6 +140,33 @@ l'archive au lieu de simuler un fichier POSIX classique.
 Detail de l'implementation cote extension (pieges rencontres compris) :
 voir `../pistes-a-explorer.md`, section "Approche C".
 
+## Validé sur une vraie application Laravel
+
+Un projet Laravel fraîchement installé (`composer create-project
+laravel/laravel`) a été testé avec `app/` empaqueté en `.mbpak` et
+**retiré du disque** (aucun repli possible) : page d'accueil, route
+avec contrôleur héritant de la classe de base + requête Eloquent réelle
+sur SQLite -- tout fonctionne, avec Composer configuré en mode
+classmap-optimisé (défaut de Laravel) *et* en résolution PSR-4
+dynamique (celle qui sollicite vraiment `url_stat`). Détail complet,
+y compris comment repointer `vendor/composer/autoload_static.php` vers
+`mbpak://`, dans `../pistes-a-explorer.md`.
+
+Cette expérience a révélé un vrai bug de passage à l'échelle (corrigé,
+voir `FORMAT.md` -- format v3) : `mbpak_get()` dérivait une clé PBKDF2
+complète (~100ms) à **chaque fichier lu**, ce qui aurait rendu
+inutilisable un `app/` réaliste de plusieurs dizaines de classes. Ce
+n'est qu'en chargeant une vraie page, avec de vraies classes
+autoloadées, que le problème est devenu visible -- exactement le genre
+de défaut qu'un test synthétique à un seul fichier ne révèle pas.
+
+Ce que ce test **ne** couvre pas : `vendor/` (dépendances Composer,
+volontairement laissé sur disque -- code open-source, pas de valeur à
+cacher, et des milliers de fichiers auraient nécessité d'implémenter
+`is_dir()`/listage de répertoire pour `mbpak://`), `storage/`, les caches
+`bootstrap/cache/` (voir la discussion "quoi packer / quoi laisser" plus
+bas dans `pistes-a-explorer.md`).
+
 ## Auteur
 
 CISSE Mohamed Bassirou — <mohamedbachir.cisse@gmail.com>

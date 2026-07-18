@@ -13,6 +13,10 @@
 #include <time.h>
 #include <zlib.h>   /* crc32() -- already a hard dependency via mbcrypt_lib */
 
+#if MBPAK_KDF_SALT_LEN != MBCRYPT_PBKDF2_SALT_LEN
+#  error "MBPAK_KDF_SALT_LEN must match MBCRYPT_PBKDF2_SALT_LEN"
+#endif
+
 /* ==================================================================
  * Small portable helpers
  * ================================================================== */
@@ -46,23 +50,31 @@ static void free_entries(mbpak_entry_t *e)
 }
 
 /* ==================================================================
- * Header (24 bytes, cleartext, fixed offset 0)
+ * Header (40 bytes, cleartext, fixed offset 0)
+ *   [0..8)   magic
+ *   [8]      version
+ *   [9..12)  reserved
+ *   [12..28) kdf_salt (16 bytes)
+ *   [28..36) toc_offset (u64 LE)
+ *   [36..40) header_crc32 -- covers bytes [0..36)
  * ================================================================== */
 
-static uint32_t header_crc(const uint8_t *hdr20)
+static uint32_t header_crc(const uint8_t *hdr36)
 {
-    return (uint32_t)crc32(0L, hdr20, 20);
+    return (uint32_t)crc32(0L, hdr36, 36);
 }
 
-static int write_header(FILE *fp, uint64_t toc_offset)
+static int write_header(FILE *fp, const uint8_t kdf_salt[MBPAK_KDF_SALT_LEN],
+                         uint64_t toc_offset)
 {
     uint8_t hdr[MBPAK_HEADER_LEN];
 
     memcpy(hdr, MBPAK_MAGIC, MBPAK_MAGIC_LEN);
     hdr[8] = MBPAK_VERSION;
     hdr[9] = hdr[10] = hdr[11] = 0;
-    put_u64le(hdr + 12, toc_offset);
-    put_u32le(hdr + 20, header_crc(hdr));
+    memcpy(hdr + 12, kdf_salt, MBPAK_KDF_SALT_LEN);
+    put_u64le(hdr + 28, toc_offset);
+    put_u32le(hdr + 36, header_crc(hdr));
 
     if (fseek(fp, 0, SEEK_SET) != 0) return -1;
     if (fwrite(hdr, 1, MBPAK_HEADER_LEN, fp) != MBPAK_HEADER_LEN) return -1;
@@ -70,7 +82,8 @@ static int write_header(FILE *fp, uint64_t toc_offset)
     return 0;
 }
 
-static int read_header(FILE *fp, uint64_t *toc_offset)
+static int read_header(FILE *fp, uint8_t kdf_salt[MBPAK_KDF_SALT_LEN],
+                        uint64_t *toc_offset)
 {
     uint8_t hdr[MBPAK_HEADER_LEN];
 
@@ -78,9 +91,10 @@ static int read_header(FILE *fp, uint64_t *toc_offset)
     if (fread(hdr, 1, MBPAK_HEADER_LEN, fp) != MBPAK_HEADER_LEN) return -1;
     if (memcmp(hdr, MBPAK_MAGIC, MBPAK_MAGIC_LEN) != 0) return -1;
     if (hdr[8] != MBPAK_VERSION) return -1;
-    if (header_crc(hdr) != get_u32le(hdr + 20)) return -1; /* corrupted header */
+    if (header_crc(hdr) != get_u32le(hdr + 36)) return -1; /* corrupted header */
 
-    *toc_offset = get_u64le(hdr + 12);
+    memcpy(kdf_salt, hdr + 12, MBPAK_KDF_SALT_LEN);
+    *toc_offset = get_u64le(hdr + 28);
     return 0;
 }
 
@@ -226,15 +240,21 @@ static int load_toc(mbpak_t *pak)
     mbpak_entry_t *entries;
     int rc;
 
-    if (read_header(pak->fp, &pak->toc_offset) != 0) return -1;
+    if (read_header(pak->fp, pak->kdf_salt, &pak->toc_offset) != 0) return -1;
+
+    /* One PBKDF2 pass for the whole archive -- see the format doc at
+     * the top of mbpak_lib.h for why this replaced per-record
+     * derivation in v3. */
+    if (mbcrypt_lib_derive_key(pak->password, pak->kdf_salt, pak->key) != 0)
+        return -1;
 
     toc_blob = read_record(pak->fp, pak->toc_offset, &toc_blob_len);
     if (!toc_blob) return -1;
 
-    toc_plain = mbcrypt_lib_decode(toc_blob, toc_blob_len, &toc_plain_len,
-                                    pak->password);
+    toc_plain = mbcrypt_lib_decode_with_key(toc_blob, toc_blob_len, &toc_plain_len,
+                                             pak->key);
     free(toc_blob);
-    if (!toc_plain) return -1; /* wrong password or corrupted TOC */
+    if (!toc_plain) return -1; /* wrong password (derived key mismatch) or corrupted TOC */
 
     rc = parse_toc(toc_plain, toc_plain_len, &entries);
     free(toc_plain);
@@ -269,12 +289,15 @@ mbpak_t *mbpak_create(const char *path, const char *password)
     pak->password = xstrdup(password);
     pak->dirty    = 1; /* forces an initial empty-TOC commit below */
 
-    /* Reserve the 24-byte header slot *before* the first record is ever
+    /* Reserve the 40-byte header slot *before* the first record is ever
      * appended. Without this, write_record()'s "append at EOF" would
      * land at offset 0 on a brand-new empty file, and the header write
      * that follows in mbpak_flush() would then clobber that record --
      * toc_offset==0 pointing right back into the header itself. */
-    if (!pak->path || !pak->password || write_header(fp, 0) != 0 ||
+    if (!pak->path || !pak->password ||
+        mbcrypt_lib_random_salt(pak->kdf_salt)             != 0 ||
+        mbcrypt_lib_derive_key(password, pak->kdf_salt, pak->key) != 0 ||
+        write_header(fp, pak->kdf_salt, 0) != 0 ||
         mbpak_flush(pak) != 0) {
         mbpak_close(pak);
         remove(path);
@@ -316,8 +339,7 @@ int mbpak_put(mbpak_t *pak, const char *vpath, const char *data, size_t len)
 
     if (!pak || !vpath || !*vpath || !data || !len) return -1;
 
-    blob = mbcrypt_lib_encode(data, len, &blob_len, MBCRYPT_AES_GCM_MODE,
-                               pak->password);
+    blob = mbcrypt_lib_encode_with_key(data, len, &blob_len, pak->key);
     if (!blob) return -1;
 
     if (write_record(pak->fp, blob, blob_len, &offset) != 0) {
@@ -367,7 +389,7 @@ char *mbpak_get(mbpak_t *pak, const char *vpath, size_t *out_len)
     blob = read_record(pak->fp, e->offset, &blob_len);
     if (!blob) return NULL;
 
-    plain = mbcrypt_lib_decode(blob, blob_len, out_len, pak->password);
+    plain = mbcrypt_lib_decode_with_key(blob, blob_len, out_len, pak->key);
     free(blob);
     return plain;
 }
@@ -405,10 +427,10 @@ int mbpak_flush(mbpak_t *pak)
     if (!toc_plain) return -1;
 
     /* serialize_toc() always emits >= 4 bytes (entry_count), so this
-     * never hits mbcrypt_lib_encode()'s "empty input" rejection even
-     * for a brand-new, empty archive. */
-    toc_blob = mbcrypt_lib_encode(toc_plain, toc_plain_len, &toc_blob_len,
-                                   MBCRYPT_AES_GCM_MODE, pak->password);
+     * never hits mbcrypt_lib_encode_with_key()'s "empty input" rejection
+     * even for a brand-new, empty archive. */
+    toc_blob = mbcrypt_lib_encode_with_key(toc_plain, toc_plain_len, &toc_blob_len,
+                                            pak->key);
     free(toc_plain);
     if (!toc_blob) return -1;
 
@@ -418,7 +440,7 @@ int mbpak_flush(mbpak_t *pak)
     }
     free(toc_blob);
 
-    if (write_header(pak->fp, new_toc_offset) != 0) return -1;
+    if (write_header(pak->fp, pak->kdf_salt, new_toc_offset) != 0) return -1;
 
     pak->toc_offset = new_toc_offset;
     pak->dirty = 0;
@@ -480,5 +502,6 @@ void mbpak_close(mbpak_t *pak)
     free_entries(pak->entries);
     free(pak->path);
     free(pak->password);
+    memset(pak->key, 0, sizeof(pak->key)); /* derived key, don't leave it in freed heap memory */
     free(pak);
 }

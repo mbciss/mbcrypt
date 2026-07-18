@@ -1,4 +1,4 @@
-# Format `.mbpak` v1
+# Format `.mbpak` v3
 
 Archive chiffrée, lecture/écriture, construite au-dessus de `mbcrypt_lib`
 (`../mbcrypt/mbcrypt_lib.c`, non modifié). Un seul fichier binaire, aucune
@@ -17,7 +17,7 @@ refusent un mot de passe vide.
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│ HEADER (24 o, clair, offset fixe 0, jamais deplace)      │
+│ HEADER (40 o, clair, offset fixe 0, jamais deplace)      │
 ├─────────────────────────────────────────────────────────┤
 │ RECORD  [8 o len][ blob MB_ENC_V3 du fichier 1 ]         │
 │ RECORD  [8 o len][ blob MB_ENC_V3 du fichier 2 ]         │
@@ -28,20 +28,23 @@ refusent un mot de passe vide.
 ```
 
 Chaque fichier *et* la TOC elle-meme sont stockés comme un `RECORD`
-identique : un blob `MB_ENC_V3` produit tel quel par
-`mbcrypt_lib_encode()` (le meme format qu'un `.php` chiffré seul par
-`mbcrypt`). Aucune nouvelle primitive cryptographique n'a été écrite
-pour `.mbpak` -- uniquement le conteneur autour.
+identique : un blob `MB_ENC_V3` structurellement identique à ce que
+produit `mbcrypt_lib_encode()` (le meme format qu'un `.php` chiffré
+seul par `mbcrypt`), mais généré par `mbcrypt_lib_encode_with_key()`
+(voir "Dérivation de clé" plus bas) -- toujours zéro nouvelle primitive
+cryptographique, juste la manière dont la clé AES arrive à cette
+primitive qui change entre v1/v2 et v3.
 
-## HEADER (24 octets)
+## HEADER (40 octets)
 
 | Offset | Taille | Champ          | Rôle |
 |--------|--------|----------------|------|
 | 0      | 8      | `magic`        | `"MBPAK001"` |
-| 8      | 1      | `version`      | = 1 |
+| 8      | 1      | `version`      | = 3 |
 | 9      | 3      | `reserved`     | zero-pad |
-| 12     | 8      | `toc_offset`   | u64 LE — offset absolu du RECORD contenant la TOC courante |
-| 20     | 4      | `header_crc32` | CRC32 des octets [0..20) — détecte une écriture de header tronquée ; **ce n'est pas un secret**, juste une protection anti-corruption |
+| 12     | 16     | `kdf_salt`     | salt PBKDF2 pour toute l'archive (v3, voir plus bas) |
+| 28     | 8      | `toc_offset`   | u64 LE — offset absolu du RECORD contenant la TOC courante |
+| 36     | 4      | `header_crc32` | CRC32 des octets [0..36) — détecte une écriture de header tronquée ; **ce n'est pas un secret**, juste une protection anti-corruption |
 
 C'est le **seul** endroit du fichier réécrit en place. Tout le reste est
 en append-only.
@@ -53,15 +56,44 @@ en append-only.
 [blob_len o]  blob MB_ENC_V3
 ```
 
-Le blob est la sortie brute de `mbcrypt_lib_encode(data, len,
-MBCRYPT_AES_GCM_MODE, password)` : tag `"MB_ENC_V3"` + version + method
-+ reserved + salt PBKDF2 (16 o) + nonce GCM (12 o) + tag GCM (16 o) +
-ciphertext zlib-compressé. Lu et vérifié par `mbcrypt_lib_decode()`
-sans aucune adaptation.
+Le blob est la sortie brute de `mbcrypt_lib_encode_with_key(data, len,
+key)` : tag `"MB_ENC_V3"` + version + method + reserved + champ salt
+(16 o, **vestige structurel, ignoré en lecture depuis v3** -- voir
+"Dérivation de clé") + nonce GCM (12 o, **frais et aléatoire à chaque
+record**) + tag GCM (16 o) + ciphertext zlib-compressé. Lu et vérifié
+par `mbcrypt_lib_decode_with_key()`.
 
 La longueur du record n'est **pas** dupliquée dans la TOC : elle est
 lue depuis le préfixe de 8 octets du RECORD lui-même à `offset`. Une
 seule source de vérité.
+
+## Dérivation de clé (v3) — la clé se dérive une fois par archive, pas une fois par fichier
+
+`kdf_salt` (dans le HEADER) sert à dériver la clé AES de l'archive
+**une seule fois**, à `mbpak_open()`/`mbpak_create()`, via
+`mbcrypt_lib_derive_key()` (PBKDF2-SHA256, volontairement lent --
+~100ms). Cette clé unique est ensuite réutilisée pour **tous** les
+RECORDs via `mbcrypt_lib_encode_with_key()`/`decode_with_key()` --
+chaque record garde son propre nonce GCM aléatoire (obligatoire pour la
+sécurité d'AES-GCM : jamais réutiliser un couple (clé, nonce)), mais
+plus aucun n'effectue sa propre dérivation PBKDF2.
+
+**v1/v2 dérivaient une clé fraîche à partir du mot de passe pour
+CHAQUE record** (`mbcrypt_lib_encode()`/`decode()`, chacun avec son
+propre salt aléatoire) -- ce qui voulait dire que N fichiers coûtaient
+N x le coût PBKDF2 (~100ms x N). Ça n'a pas été repéré en théorie mais
+en pratique : en empaquetant le dossier `app/` d'une vraie application
+Laravel et en chargeant une page réelle, `mbpak_get()` coûtait ~96ms
+**par classe autoloadée**. Sur un dossier `app/` réaliste (dizaines de
+fichiers), ça aurait donné plusieurs secondes de temps de chargement
+rien qu'en dérivation de clé. Voir `pistes-a-explorer.md` pour le
+détail complet de cette session de test.
+
+Le champ `salt` conservé dans chaque blob `MB_ENC_V3` (pour rester
+structurellement identique au format `mbcrypt` mono-fichier) est donc
+**vestigial** en v3 : rempli avec des octets aléatoires à l'écriture,
+jamais lu au déchiffrement (`mbcrypt_lib_decode_with_key()` reçoit la
+clé directement, elle n'a pas besoin de ce champ).
 
 ## TOC (texte clair avant chiffrement)
 
@@ -76,10 +108,11 @@ répété entry_count fois :
   [8 o]  size         u64 LE -- taille en clair, en octets (v2+)
 ```
 
-Ce buffer est passé tel quel à `mbcrypt_lib_encode()` -- la TOC est
-chiffrée avec la même clé (dérivée du même mot de passe) que les
-fichiers. `entry_count == 0` produit un buffer de 4 octets, jamais vide
-(important : `mbcrypt_lib_encode()` refuse une entrée de longueur 0).
+Ce buffer est passé tel quel à `mbcrypt_lib_encode_with_key()` -- la
+TOC est chiffrée avec la même clé dérivée que les fichiers.
+`entry_count == 0` produit un buffer de 4 octets, jamais vide
+(important : `mbcrypt_lib_encode_with_key()` refuse une entrée de
+longueur 0).
 
 **`size` est dupliquée volontairement (v2)** : c'est la seule métadonnée
 qui ne peut pas se déduire du RECORD sans un déchiffrement AES-GCM +
@@ -91,11 +124,15 @@ appelle `file_exists()` sur chaque chemin candidat en résolvant une
 classe, donc payer un déchiffrement complet par `stat()` serait un vrai
 coût, pas juste une question de pureté.
 
-**Format v1 -> v2** : le champ `size` n'existait pas en v1 (jamais
-distribué, seulement des fixtures de test locales). `MBPAK_VERSION` est
-passé de 1 à 2 ; `read_header()` refuse d'ouvrir une archive dont
-l'octet de version ne correspond pas exactement -- pas de tentative de
-lecture partielle d'une archive v1 avec le parseur v2.
+**Historique de version** : ni v1 ni v2 n'ont jamais été distribuées
+(fixtures de test locales uniquement à chaque fois), donc chaque bump
+s'est fait sans migration. v1 -> v2 : ajout du champ `size` par entrée.
+v2 -> v3 : ajout de `kdf_salt` dans le HEADER + dérivation de clé
+unique par archive (voir plus haut) -- le HEADER passe de 24 à 40
+octets. `read_header()` refuse d'ouvrir une archive dont l'octet de
+version ne correspond pas exactement, à chaque fois -- pas de tentative
+de lecture partielle d'une version antérieure avec un parseur plus
+récent.
 
 ## Protocole d'écriture (commit)
 
@@ -103,7 +140,7 @@ lecture partielle d'une archive v1 avec le parseur v2.
    en fin de fichier, met à jour la TOC **en mémoire seulement**. Les
    autres RECORDs ne sont jamais touchés.
 2. `mbpak_flush()` : sérialise la TOC en mémoire, la chiffre, l'append
-   en fin de fichier, puis réécrit les 24 octets du HEADER pour
+   en fin de fichier, puis réécrit les 40 octets du HEADER pour
    pointer sur ce nouveau RECORD.
 3. Point de commit = l'écriture du HEADER. Un crash avant cette écriture
    laisse l'archive sur son état précédent, toujours valide (ancienne
@@ -138,6 +175,15 @@ inutilisé, et corrompre `tag`/`version`/`method` fait juste échouer la
 détection du format (`mbcrypt_lib_detect()`) -- même résultat (échec),
 juste par une voie différente. Ce comportement est hérité de
 `mbcrypt_lib` telle quelle, pas introduit par `.mbpak`.
+
+## Performance (après le passage en v3)
+
+Mesuré sur `mbpak/mbpak_cli.c` (30 fichiers empaquetés, `mbpak extract`
+= 1 mount + 30 déchiffrements) : ~89ms au total, contre ~3,1s attendus
+avec le modèle v1/v2 (1 dérivation PBKDF2 par fichier, ~100ms x 31).
+Le coût de dérivation de clé est désormais O(1) par archive montée,
+plus O(N) déchiffrements AES-GCM (rapides, pas de PBKDF2) pour N
+fichiers lus -- au lieu de O(N) dérivations PBKDF2 complètes.
 
 ## Limitations connues (état actuel)
 

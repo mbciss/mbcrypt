@@ -374,3 +374,111 @@ workers PHP-FPM, pas de lecture en streaming pour de gros fichiers).
   n'en a eu besoin), `dir_opener` (listage de repertoire depuis
   `mbpak://` -- pas de notion de repertoire dans le format aujourd'hui,
   seulement des chemins plats dans la TOC)
+
+#### Test grandeur nature : une vraie application Laravel -- session du 2026-07-18 (suite)
+
+Objectif : telecharger un Laravel frais, empaqueter une partie de
+l'application avec `.mbpak`, l'executer, et corriger mbpak jusqu'a ce
+que ca tourne correctement -- pas un test synthetique a un seul
+fichier comme les precedents, une vraie application avec un vrai
+autoloader Composer et une vraie base de donnees.
+
+**Perimetre choisi (discute avant execution)** : seul `app/` (12 Ko,
+3-4 classes) est empaquete et retire du disque. `vendor/` (80 Mo, code
+open-source, aucune valeur a cacher, aurait demande d'implementer
+`is_dir()`/listage de repertoire pour des milliers de fichiers Composer)
+reste sur disque, de meme que `config/`, `routes/`, `resources/views/`,
+`storage/` et `bootstrap/cache/` -- coherent avec la recommandation
+donnee avant `url_stat` (les fichiers write-heavy/multi-workers comme
+les uploads et les logs sont un mauvais candidat pour `.mbpak`, voir
+plus haut dans ce document).
+
+**Mise en place** : `composer create-project laravel/laravel` (Laravel
+13.20.0, PHP 8.3, SQLite) dans un conteneur Docker persistant (pas
+`--rm`, pour iterer sans tout reinstaller). Baseline verifiee (page
+d'accueil HTTP 200) avant tout packing. `app/` empaquete via
+`mbpak pack`, puis **deplace hors du disque** (`mv app app.REAL_DISABLED`)
+pour chaque test -- aucun repli silencieux possible, si ca repond c'est
+que ca vient reellement de l'archive.
+
+**Branchement sur l'autoload Composer** : `composer.json` de Laravel
+active `optimize-autoloader` par defaut, donc les classes `App\*` sont
+normalement resolues via une classmap statique
+(`vendor/composer/autoload_static.php`, chemins directs, AUCUN
+`file_exists()` -- `ClassLoader::findFile()` retourne le chemin de la
+classmap sans le verifier). Les deux mecanismes ont ete testes :
+1. **Mode classmap (celui que Laravel utilise reellement par defaut)** :
+   `sed` repointe chaque entree `'App\\Xxx' => '.../app/Xxx.php'` vers
+   `'mbpak://Xxx.php'`. `include "mbpak://..."` marche directement via
+   le stream wrapper deja en place, aucun changement necessaire.
+2. **Mode PSR-4 dynamique (sollicite reellement `url_stat`)** :
+   `optimize-autoloader` desactive, `prefixDirsPsr4['App\\']` repointe
+   sur `'mbpak:/'` (un seul slash -- la concatenation Composer
+   `$dir . '/Chemin.php'` doit produire `'mbpak://Chemin.php'`, pas
+   `'mbpak:///Chemin.php'`). Les deux modes ont ete verifies avec succes,
+   independamment.
+`mbpak_mount()` ajoute en toute premiere ligne de `public/index.php`,
+avant `require vendor/autoload.php`.
+
+**Verifie en conditions reelles (avec `app/` absent du disque)** :
+- Page d'accueil Laravel (HTTP 200, HTML identique a la baseline)
+- Route personnalisee avec un `TestController extends Controller`
+  (heritage entre deux classes chargees separement depuis l'archive,
+  verifie via `get_parent_class()`) qui execute une vraie requete
+  Eloquent (`User::count()`, `User::first()`) sur la base SQLite reelle
+- Echec propre sans aucun `mbpak_mount()` (HTTP 500, exception Laravel
+  normale "classe introuvable", aucun repli silencieux, aucune fuite
+  d'information)
+- Mauvais mot de passe : `mbpak_mount()` renvoie `false`, message clair,
+  aucun contenu servi
+
+**Bug de passage a l'echelle trouve et corrige (le plus important de
+cette session)** : en mesurant le temps de reponse (~0,5-0,65s pour une
+archive de 4 fichiers, anormalement lent), `mbpak_get()` s'est revele
+couter ~96ms **par fichier lu** -- une derivation PBKDF2-SHA256
+complete (100 000 iterations, volontairement lente) a chaque appel, en
+plus des ~104ms de `mbpak_mount()`. Sur un `app/` reel de plusieurs
+dizaines de classes, ca aurait donne plusieurs secondes de chargement
+de page rien qu'en derivation de cle -- un test synthetique a 1-4
+fichiers ne pouvait pas reveler ce probleme, seul un test avec un vrai
+volume de fichiers autoloades l'a fait apparaitre.
+
+Cause : `mbpak_put()`/`mbpak_get()`/le chiffrement de la TOC appelaient
+`mbcrypt_lib_encode()`/`decode()` (le mot de passe), qui derivent une
+cle PBKDF2 **fraiche a partir d'un salt aleatoire genere a chaque
+appel** -- concu pour proteger un fichier `.php` isole (un seul
+dechiffrement par compilation), pas pour un conteneur avec des dizaines
+de fichiers lus sous le meme mot de passe.
+
+Correctif (format `.mbpak` v3, detail complet dans `mbpak/FORMAT.md`) :
+- Nouvelles fonctions additives dans `mbcrypt_lib.c`/`.h` (aucun
+  changement de comportement des fonctions existantes, verifie par un
+  test de regression dedie) : `mbcrypt_lib_random_salt()`,
+  `mbcrypt_lib_derive_key()`, `mbcrypt_lib_encode_with_key()`,
+  `mbcrypt_lib_decode_with_key()` -- memes primitives AES-GCM/PBKDF2
+  internes (`aes_gcm_encrypt`/`decrypt` refactorees en variantes
+  `_with_key`, les fonctions historiques bassees sur mot de passe
+  devenues de simples wrappers dessus), juste separees de la derivation
+  de cle pour pouvoir la faire une fois et la reutiliser
+- `.mbpak` header passe de 24 a 40 octets (ajout de `kdf_salt`, 16
+  octets, fixe pour la duree de vie de l'archive) ; `MBPAK_VERSION`
+  passe de 2 a 3
+- La cle est derivee **une fois** a `mbpak_open()`/`mbpak_create()` et
+  reutilisee pour tous les RECORDs (fichiers et TOC) ; seul le nonce
+  GCM reste frais et aleatoire par record (obligatoire pour la
+  securite d'AES-GCM -- reutiliser une cle avec des nonces distincts
+  est la maniere standard de chiffrer en masse sous une seule cle)
+- Propriete de securite critique re-verifiee apres ce refactoring
+  crypto : alteration d'un octet dans le ciphertext d'un fichier ->
+  seul ce fichier echoue a l'authentification, les autres records de
+  la meme archive restent lisibles (meme test que documente plus haut,
+  rejoue explicitement sur le nouveau format)
+- Mesure : `mbpak extract` sur 30 fichiers passe de ~3,1s (attendu,
+  31 x ~100ms) a ~89ms mesures (mount + 30 dechiffrements). Sur le
+  test Laravel reel (4 fichiers), le temps de reponse passe de
+  ~0,5-0,65s a ~0,14-0,17s par requete
+- Reverifie sur toute la matrice **PHP 8.0-8.5, NTS+ZTS** (build Docker,
+  meme scenario de non-regression que les sessions precedentes) +
+  `mbpak/test/run.sh` + AddressSanitizer/UBSan sur un scenario
+  pack/get/put/rm/compact avec des fichiers de taille reelle -- aucune
+  fuite, aucun UB, aucune regression

@@ -21,26 +21,27 @@
 /* ------------------------------------------------------------------
  * On-disk format (see mbpak/FORMAT.md for the full rationale)
  *
- *   [HEADER  24 bytes, cleartext, fixed offset 0 -- rewritten in place
+ *   [HEADER  40 bytes, cleartext, fixed offset 0 -- rewritten in place
  *             at every commit, never moves]
  *   [RECORD] [RECORD] ...   -- one per file, append-only, never mutated
  *   [RECORD] -- the TOC itself, appended just like any file record
  *
  * HEADER layout:
  *   [8]  magic        "MBPAK001"
- *   [1]  version       = 2
+ *   [1]  version       = 3
  *   [3]  reserved      zero-padded
+ *   [16] kdf_salt      PBKDF2 salt for the WHOLE archive (see below)
  *   [8]  toc_offset    u64 LE -- byte offset of the current TOC record
- *   [4]  header_crc32  CRC32 of bytes [0..20) -- catches a torn header
+ *   [4]  header_crc32  CRC32 of bytes [0..36) -- catches a torn header
  *                      write; NOT a secret, just corruption detection
  *
  * RECORD layout (used for both files and the TOC):
  *   [8]  blob_len  u64 LE
- *   [blob_len] bytes -- raw output of mbcrypt_lib_encode(), i.e. an
- *              "MB_ENC_V3" blob, AES-256-GCM only (see FORMAT.md for
- *              why legacy XOR is not offered here)
+ *   [blob_len] bytes -- raw output of mbcrypt_lib_encode_with_key(),
+ *              i.e. an "MB_ENC_V3" blob, AES-256-GCM only (see
+ *              FORMAT.md for why legacy XOR is not offered here)
  *
- * TOC plaintext (before it is handed to mbcrypt_lib_encode()):
+ * TOC plaintext (before it is handed to mbcrypt_lib_encode_with_key()):
  *   [4]  entry_count  u32 LE
  *   repeated entry_count times:
  *     [2]  path_len    u16 LE
@@ -48,24 +49,43 @@
  *     [8]  offset      u64 LE -- start of this file's RECORD
  *     [4]  flags       u32 LE -- bit0 = MBPAK_FLAG_TOMBSTONE
  *     [8]  mtime       u64 LE -- unix timestamp, informational only
- *     [8]  size        u64 LE -- plaintext byte length (v2+, see below)
+ *     [8]  size        u64 LE -- plaintext byte length
  *
  * A file's record length is NOT duplicated in the TOC: it is read from
  * the record's own 8-byte prefix at `offset`. One source of truth.
  *
- * `size` IS duplicated on purpose (v2): it is the plaintext length,
- * which cannot be read from the record without a full AES-GCM decrypt
- * + zlib inflate. The mbpak:// stream wrapper's url_stat() (see
+ * `size` IS duplicated on purpose: it is the plaintext length, which
+ * cannot be read from the record without a full AES-GCM decrypt +
+ * zlib inflate. The mbpak:// stream wrapper's url_stat() (see
  * ../mbcrypt/mbcryptload.c) needs it to answer file_exists()/
  * filesize() cheaply -- Composer's PSR-4 autoloader calls file_exists()
  * on every candidate path while resolving a class, so paying a full
  * decrypt per stat() would be a real cost, not just a purity concern.
+ *
+ * KEY DERIVATION (v3): `kdf_salt` in the HEADER is used to derive the
+ * archive's AES key ONCE, at mbpak_open()/mbpak_create() time, via
+ * mbcrypt_lib_derive_key() (PBKDF2-SHA256, ~100ms by design). That one
+ * derived key is then reused for every RECORD via
+ * mbcrypt_lib_encode_with_key()/decode_with_key() -- each record still
+ * gets a fresh random GCM nonce (required for AES-GCM safety) and
+ * still carries its own (now-unused) salt field for blob-format
+ * consistency, but no longer re-derives the key from the password.
+ * v1/v2 derived a fresh key from the password for EVERY record
+ * (mbcrypt_lib_encode()/decode()), which meant N files cost N x the
+ * PBKDF2 tax -- ~100ms x N, discovered while packing a real Laravel
+ * app/ directory (see pistes-a-explorer.md). v3 pays that cost exactly
+ * once per mount, regardless of how many files are read afterward.
  * ------------------------------------------------------------------ */
 
 #define MBPAK_MAGIC       "MBPAK001"
 #define MBPAK_MAGIC_LEN   8
-#define MBPAK_VERSION     2
-#define MBPAK_HEADER_LEN  24
+#define MBPAK_VERSION     3
+#define MBPAK_HEADER_LEN  40
+#define MBPAK_KDF_SALT_LEN 16 /* == MBCRYPT_PBKDF2_SALT_LEN, kept literal
+                                * here so this header does not need to
+                                * include mbcrypt_lib.h just for one
+                                * constant (mbpak_lib.c asserts they
+                                * match at compile time via mbcrypt_lib.h). */
 
 #define MBPAK_FLAG_TOMBSTONE  0x1u
 
@@ -74,7 +94,7 @@ typedef struct mbpak_entry {
     uint64_t             offset; /* byte offset of this file's RECORD    */
     uint32_t             flags;  /* MBPAK_FLAG_*                         */
     uint64_t             mtime;  /* unix timestamp, informational        */
-    uint64_t             size;   /* plaintext byte length (v2+)          */
+    uint64_t             size;   /* plaintext byte length                */
     struct mbpak_entry  *next;
 } mbpak_entry_t;
 
@@ -82,6 +102,8 @@ typedef struct {
     FILE          *fp;
     char          *path;         /* archive file path, owned copy        */
     char          *password;     /* owned copy, required (AES-GCM only)  */
+    uint8_t        kdf_salt[MBPAK_KDF_SALT_LEN]; /* fixed for archive lifetime */
+    uint8_t        key[32];      /* derived once from password+kdf_salt  */
     uint64_t       toc_offset;
     mbpak_entry_t *entries;      /* in-memory TOC, includes tombstones   */
     int            dirty;        /* 1 if entries changed since last flush */

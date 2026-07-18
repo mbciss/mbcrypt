@@ -118,4 +118,41 @@ char *mbcrypt_lib_encode(const char *src,  size_t src_len,  size_t *out_len,
 char *mbcrypt_lib_decode(const char *blob, size_t blob_len, size_t *out_len,
                           const char *password);
 
+/* ------------------------------------------------------------------
+ * Bulk / pre-derived-key API — for a caller managing many small blobs
+ * under ONE password (e.g. an archive format) that wants to pay the
+ * PBKDF2 cost once instead of once per blob. AES-256-GCM (mbpak) only
+ * — there is no legacy-XOR equivalent. Requires MBCRYPT_HAS_OPENSSL
+ * at build time; all four return an error (NULL / -1) otherwise.
+ * ------------------------------------------------------------------ */
+
+/* Fill `salt` with MBCRYPT_PBKDF2_SALT_LEN random bytes.
+ * Returns 0 on success, -1 on error.                                 */
+int mbcrypt_lib_random_salt(uint8_t salt[MBCRYPT_PBKDF2_SALT_LEN]);
+
+/* Derive a 256-bit AES key from `password` + `salt` (PBKDF2-SHA256,
+ * MBCRYPT_PBKDF2_ITER iterations — the same ~100ms cost paid inside
+ * one mbcrypt_lib_encode()/decode() call, paid here exactly once for
+ * however many mbcrypt_lib_*_with_key() blobs follow).
+ * Returns 0 on success, -1 on error.                                 */
+int mbcrypt_lib_derive_key(const char *password,
+                            const uint8_t salt[MBCRYPT_PBKDF2_SALT_LEN],
+                            uint8_t key[MBCRYPT_AES_KEY_LEN]);
+
+/* Same output format as mbcrypt_lib_encode(..., MBCRYPT_AES_GCM_MODE, ..)
+ * — a "MB_ENC_V3" AES blob — but takes an already-derived key instead
+ * of a password, skipping PBKDF2 entirely. The blob's own salt field
+ * is still present for structural/format consistency (filled with
+ * random bytes) but plays no role in mbcrypt_lib_decode_with_key().
+ * Returns malloc'd V3 blob; caller must free(). Returns NULL on error. */
+char *mbcrypt_lib_encode_with_key(const char *src, size_t src_len, size_t *out_len,
+                                   const uint8_t key[MBCRYPT_AES_KEY_LEN]);
+
+/* Counterpart to mbcrypt_lib_encode_with_key(): decrypt + decompress a
+ * V3 AES blob using an already-derived key instead of a password.
+ * Returns NULL on GCM authentication failure (tampered data / wrong
+ * key) or bad format. Returns malloc'd plaintext; caller must free(). */
+char *mbcrypt_lib_decode_with_key(const char *blob, size_t blob_len, size_t *out_len,
+                                   const uint8_t key[MBCRYPT_AES_KEY_LEN]);
+
 #endif /* MBCRYPT_LIB_H */

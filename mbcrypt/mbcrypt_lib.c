@@ -179,26 +179,22 @@ static int derive_key(const char *pass,
         MBCRYPT_AES_KEY_LEN, key) == 1 ? 0 : -1;
 }
 
-/* AES-256-GCM encrypt.
- * Fills caller-provided salt, iv, tag arrays.
+/* AES-256-GCM encrypt with an already-derived key (no PBKDF2 here).
+ * Fills caller-provided iv/tag arrays.
  * Returns malloc'd ciphertext; *out_len = ciphertext length. */
-static char *aes_gcm_encrypt(const char *in, size_t in_len,
-                               size_t *out_len,
-                               const char *password,
-                               uint8_t salt[MBCRYPT_PBKDF2_SALT_LEN],
-                               uint8_t iv  [MBCRYPT_AES_IV_LEN],
-                               uint8_t tag [MBCRYPT_AES_TAG_LEN])
+static char *aes_gcm_encrypt_with_key(const char *in, size_t in_len,
+                                        size_t *out_len,
+                                        const uint8_t key[MBCRYPT_AES_KEY_LEN],
+                                        uint8_t iv [MBCRYPT_AES_IV_LEN],
+                                        uint8_t tag[MBCRYPT_AES_TAG_LEN])
 {
-    uint8_t key[MBCRYPT_AES_KEY_LEN];
     EVP_CIPHER_CTX *ctx = NULL;
     char *out = NULL;
     int len = 0, flen = 0;
 
     *out_len = 0;
 
-    if (RAND_bytes(salt, MBCRYPT_PBKDF2_SALT_LEN) != 1) return NULL;
-    if (RAND_bytes(iv,   MBCRYPT_AES_IV_LEN)       != 1) return NULL;
-    if (derive_key(password, salt, key)             != 0) return NULL;
+    if (RAND_bytes(iv, MBCRYPT_AES_IV_LEN) != 1) return NULL;
 
     /* AES-GCM produces same-size output as input */
     out = (char *)malloc(in_len ? in_len : 1);
@@ -224,34 +220,29 @@ static char *aes_gcm_encrypt(const char *in, size_t in_len,
         goto err;
 
     EVP_CIPHER_CTX_free(ctx);
-    memset(key, 0, sizeof(key));
     *out_len = (size_t)(len + flen);
     return out;
 
 err:
     EVP_CIPHER_CTX_free(ctx);
     free(out);
-    memset(key, 0, sizeof(key));
     return NULL;
 }
 
-/* AES-256-GCM decrypt + authenticate.
+/* AES-256-GCM decrypt + authenticate with an already-derived key.
  * Returns NULL if the GCM tag doesn't match (tampered data).
  * Returns malloc'd plaintext on success. */
-static char *aes_gcm_decrypt(const char *in, size_t in_len,
-                               size_t *out_len,
-                               const char *password,
-                               const uint8_t salt[MBCRYPT_PBKDF2_SALT_LEN],
-                               const uint8_t iv  [MBCRYPT_AES_IV_LEN],
-                               const uint8_t tag [MBCRYPT_AES_TAG_LEN])
+static char *aes_gcm_decrypt_with_key(const char *in, size_t in_len,
+                                        size_t *out_len,
+                                        const uint8_t key[MBCRYPT_AES_KEY_LEN],
+                                        const uint8_t iv [MBCRYPT_AES_IV_LEN],
+                                        const uint8_t tag[MBCRYPT_AES_TAG_LEN])
 {
-    uint8_t key[MBCRYPT_AES_KEY_LEN];
     EVP_CIPHER_CTX *ctx = NULL;
     char *out = NULL;
     int len = 0, flen = 0, ret;
 
     *out_len = 0;
-    if (derive_key(password, salt, key) != 0) return NULL;
 
     out = (char *)malloc(in_len ? in_len : 1);
     if (!out) goto err;
@@ -277,10 +268,9 @@ static char *aes_gcm_decrypt(const char *in, size_t in_len,
     /* Final verifies the GCM tag — returns <= 0 on auth failure */
     ret = EVP_DecryptFinal_ex(ctx, (unsigned char *)out + len, &flen);
     EVP_CIPHER_CTX_free(ctx);
-    memset(key, 0, sizeof(key));
 
     if (ret <= 0) {
-        /* Authentication failure — data tampered or wrong password */
+        /* Authentication failure — data tampered or wrong key */
         free(out);
         return NULL;
     }
@@ -291,8 +281,49 @@ static char *aes_gcm_decrypt(const char *in, size_t in_len,
 err:
     EVP_CIPHER_CTX_free(ctx);
     free(out);
-    memset(key, 0, sizeof(key));
     return NULL;
+}
+
+/* Password-based wrappers: generate a fresh random salt, derive the key
+ * from (password, salt), then delegate to the key-based functions above.
+ * This is exactly what mbcrypt_lib_encode()/decode() need, and exactly
+ * what a caller managing many blobs under one password should NOT call
+ * per blob — see mbcrypt_lib_derive_key() below. */
+static char *aes_gcm_encrypt(const char *in, size_t in_len,
+                               size_t *out_len,
+                               const char *password,
+                               uint8_t salt[MBCRYPT_PBKDF2_SALT_LEN],
+                               uint8_t iv  [MBCRYPT_AES_IV_LEN],
+                               uint8_t tag [MBCRYPT_AES_TAG_LEN])
+{
+    uint8_t key[MBCRYPT_AES_KEY_LEN];
+    char *out;
+
+    *out_len = 0;
+    if (RAND_bytes(salt, MBCRYPT_PBKDF2_SALT_LEN) != 1) return NULL;
+    if (derive_key(password, salt, key)            != 0) return NULL;
+
+    out = aes_gcm_encrypt_with_key(in, in_len, out_len, key, iv, tag);
+    memset(key, 0, sizeof(key));
+    return out;
+}
+
+static char *aes_gcm_decrypt(const char *in, size_t in_len,
+                               size_t *out_len,
+                               const char *password,
+                               const uint8_t salt[MBCRYPT_PBKDF2_SALT_LEN],
+                               const uint8_t iv  [MBCRYPT_AES_IV_LEN],
+                               const uint8_t tag [MBCRYPT_AES_TAG_LEN])
+{
+    uint8_t key[MBCRYPT_AES_KEY_LEN];
+    char *out;
+
+    *out_len = 0;
+    if (derive_key(password, salt, key) != 0) return NULL;
+
+    out = aes_gcm_decrypt_with_key(in, in_len, out_len, key, iv, tag);
+    memset(key, 0, sizeof(key));
+    return out;
 }
 
 #endif /* MBCRYPT_HAS_OPENSSL */
@@ -317,6 +348,131 @@ int mbcrypt_lib_detect(const char *blob, size_t blob_len)
         return MBCRYPT_LEGACY_MODE; /* V2 is always legacy XOR */
 
     return MBCRYPT_NOT_ENCRYPTED;
+}
+
+/* ==================================================================
+ * Bulk / pre-derived-key API
+ *
+ * mbcrypt_lib_encode()/decode() each pay a full PBKDF2-SHA256 pass
+ * (MBCRYPT_PBKDF2_ITER iterations, ~100ms) per call, by design: that
+ * cost is what makes brute-forcing a *single* encrypted file slow.
+ * A caller managing many small blobs under ONE password (an archive
+ * format, for instance) does not want that cost N times over for N
+ * blobs -- it wants to pay it once and reuse the derived key, with
+ * only the GCM nonce varying per blob (already randomized fresh every
+ * call by aes_gcm_encrypt_with_key() below). Reusing one AES-GCM key
+ * across many (key, random-nonce) pairs is the standard, secure way
+ * to bulk-encrypt under a single key -- nonce uniqueness is what GCM
+ * actually requires; re-deriving the same key from the same password
+ * and salt N times adds nothing beyond the N x slowdown.
+ * ================================================================== */
+
+int mbcrypt_lib_random_salt(uint8_t salt[MBCRYPT_PBKDF2_SALT_LEN])
+{
+#ifdef MBCRYPT_HAS_OPENSSL
+    return RAND_bytes(salt, MBCRYPT_PBKDF2_SALT_LEN) == 1 ? 0 : -1;
+#else
+    (void)salt;
+    return -1;
+#endif
+}
+
+int mbcrypt_lib_derive_key(const char *password,
+                            const uint8_t salt[MBCRYPT_PBKDF2_SALT_LEN],
+                            uint8_t key[MBCRYPT_AES_KEY_LEN])
+{
+#ifdef MBCRYPT_HAS_OPENSSL
+    if (!password || !*password) return -1;
+    return derive_key(password, salt, key);
+#else
+    (void)password; (void)salt; (void)key;
+    return -1;
+#endif
+}
+
+char *mbcrypt_lib_encode_with_key(const char *src, size_t src_len, size_t *out_len,
+                                   const uint8_t key[MBCRYPT_AES_KEY_LEN])
+{
+#ifdef MBCRYPT_HAS_OPENSSL
+    char *compressed = NULL, *ciphertext = NULL, *blob = NULL;
+    size_t compressed_len = 0, cipher_len = 0, blob_len = 0;
+    mbcrypt_v3_header_t *hdr;
+    uint8_t salt[MBCRYPT_PBKDF2_SALT_LEN]; /* structural filler, unused on decode */
+    uint8_t iv [MBCRYPT_AES_IV_LEN];
+    uint8_t tag[MBCRYPT_AES_TAG_LEN];
+
+    *out_len = 0;
+    if (!src || !src_len) return NULL;
+
+    compressed = mbcrypt_lib_zcompress(src, src_len, &compressed_len);
+    if (!compressed || !compressed_len) return NULL;
+
+    if (RAND_bytes(salt, MBCRYPT_PBKDF2_SALT_LEN) != 1) { free(compressed); return NULL; }
+
+    ciphertext = aes_gcm_encrypt_with_key(compressed, compressed_len, &cipher_len,
+                                           key, iv, tag);
+    free(compressed);
+    if (!ciphertext) return NULL;
+
+    blob_len = MBCRYPT_V3_AES_LEN + cipher_len;
+    blob = (char *)malloc(blob_len);
+    if (!blob) { free(ciphertext); return NULL; }
+
+    hdr = (mbcrypt_v3_header_t *)blob;
+    memcpy(hdr->tag, MBCRYPTTAG_V3_STR, MBCRYPTTAG_LEN);
+    hdr->version = 3;
+    hdr->method  = MBCRYPT_AES_GCM_MODE;
+    memset(hdr->reserved, 0, sizeof(hdr->reserved));
+
+    {
+        uint8_t *p = (uint8_t *)(blob + MBCRYPT_V3_BASE_LEN);
+        memcpy(p, salt, MBCRYPT_PBKDF2_SALT_LEN); p += MBCRYPT_PBKDF2_SALT_LEN;
+        memcpy(p, iv,   MBCRYPT_AES_IV_LEN);       p += MBCRYPT_AES_IV_LEN;
+        memcpy(p, tag,  MBCRYPT_AES_TAG_LEN);       p += MBCRYPT_AES_TAG_LEN;
+        memcpy(p, ciphertext, cipher_len);
+    }
+
+    free(ciphertext);
+    *out_len = blob_len;
+    return blob;
+#else
+    (void)src; (void)src_len; (void)out_len; (void)key;
+    return NULL;
+#endif
+}
+
+char *mbcrypt_lib_decode_with_key(const char *blob, size_t blob_len, size_t *out_len,
+                                   const uint8_t key[MBCRYPT_AES_KEY_LEN])
+{
+#ifdef MBCRYPT_HAS_OPENSSL
+    char *tmp = NULL, *plain = NULL;
+    size_t tmp_len = 0, plain_len = 0;
+
+    *out_len = 0;
+
+    if (mbcrypt_lib_detect(blob, blob_len) != MBCRYPT_AES_GCM_MODE) return NULL;
+    if (blob_len < MBCRYPT_V3_AES_LEN) return NULL;
+
+    {
+        const uint8_t *p = (const uint8_t *)(blob + MBCRYPT_V3_BASE_LEN);
+        /* p .. p+16 = salt, unused here: the key is already derived */
+        const uint8_t *iv   = p + MBCRYPT_PBKDF2_SALT_LEN;
+        const uint8_t *tag  = iv + MBCRYPT_AES_IV_LEN;
+        const char    *data = (const char *)(tag + MBCRYPT_AES_TAG_LEN);
+        size_t         dlen = blob_len - MBCRYPT_V3_AES_LEN;
+
+        tmp = aes_gcm_decrypt_with_key(data, dlen, &tmp_len, key, iv, tag);
+        if (!tmp) return NULL; /* auth failure — tampered data or wrong key */
+
+        plain = mbcrypt_lib_zdecompress(tmp, tmp_len, &plain_len);
+        free(tmp);
+    }
+    *out_len = plain_len;
+    return plain;
+#else
+    (void)blob; (void)blob_len; (void)out_len; (void)key;
+    return NULL;
+#endif
 }
 
 /* ==================================================================
