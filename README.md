@@ -16,6 +16,9 @@ Based on PHP-Screw, rewritten by CISSE Mohamed Bassirou.
 - **PHP 7.0 – 8.x** compatible (including PHP 8.1+ `zend_string*` changes)
 - Tested on Ubuntu / CentOS / OpenWRT — x86\_64 / ARM / MIPS
 - Supports PHP JIT (PHP 8+)
+- **`.mbpak` archives** (read/write, one opaque file for a whole app —
+  file names and structure hidden too) via `mbpak_mount()`/the
+  `mbpak://` stream wrapper: see [`mbpak/README.md`](mbpak/README.md)
 
 ## File format V3
 

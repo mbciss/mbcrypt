@@ -208,6 +208,8 @@ function Build-Static {
     Copy-Item (Join-Path $EXT_SRC "mbcryptload.c")     $extDest -Force
     Copy-Item (Join-Path $EXT_SRC "mbcrypt_lib.c")     $extDest -Force
     Copy-Item (Join-Path $EXT_SRC "mbcrypt_lib.h")     $extDest -Force
+    Copy-Item (Join-Path $EXT_SRC "mbpak_lib.c")       $extDest -Force
+    Copy-Item (Join-Path $EXT_SRC "mbpak_lib.h")       $extDest -Force
     Copy-Item (Join-Path $EXT_SRC "php_mbcryptload.h") $extDest -Force
     Copy-Item (Join-Path $EXT_SRC "config.w32")        $extDest -Force
     Log-OK "Extension sources copied to $extDest"

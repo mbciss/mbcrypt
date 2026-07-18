@@ -57,7 +57,7 @@ if (PHP_MBCRYPTLOAD != "no") {
         // -------------------------------------------------------------------
         // Build
         // -------------------------------------------------------------------
-        EXTENSION("mbcryptload", "mbcryptload.c mbcrypt_lib.c",
+        EXTENSION("mbcryptload", "mbcryptload.c mbcrypt_lib.c mbpak_lib.c",
                   PHP_MBCRYPTLOAD_SHARED);
 
         AC_DEFINE("HAVE_MBCRYPTLOAD", 1, "Have mbcryptload support");

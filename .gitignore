@@ -8,4 +8,6 @@ build/dist/static/
 build/devel-packs/
 build/php-sdk-tools/
 build/php-static-builds/
+build/dist-linux/*.so
+build/dist-linux/mbcrypt
 build/*.log

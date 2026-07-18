@@ -1,0 +1,3 @@
+*.o
+mbpak
+test/tmp/

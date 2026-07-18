@@ -63,3 +63,31 @@ Les variantes NTS ne sont pas verifiees a l'execution ici (aucun
 runtime PHP NTS installe localement) — seule la compilation est
 verifiee pour ces 6 DLLs (`build-windows-all.ps1`, tache "Compiler
 les 12 DLLs").
+
+## Resultats verifies -- Linux (2026-07-17)
+
+Meme jeu de tests, execute via `build/build-linux-docker.sh` (voir
+`build/GUIDE-COMPILATION-LINUX.md`) dans les images Docker officielles
+`php:8.X-cli`/`php:8.X-zts` (bullseye pour 8.0, bookworm pour 8.1-8.5) :
+`mbcryptload_set_password()` + dechiffrement AES-256-GCM reel +
+execution complete de `calcul.encrypted.php` jusqu'a
+`OK - calcul termine.`, pour les 12 combinaisons (TS **et** NTS,
+contrairement aux tests Windows ci-dessus qui ne couvrent que TS) :
+
+| Version   | NTS | ZTS |
+|-----------|-----|-----|
+| PHP 8.0.x | OK  | OK  |
+| PHP 8.1.x | OK  | OK  |
+| PHP 8.2.x | OK  | OK  |
+| PHP 8.3.x | OK  | OK  |
+| PHP 8.4.x | OK  | OK  |
+| PHP 8.5.x | OK  | OK  |
+
+Cette verification a mis au jour un bug reel corrige le meme jour :
+`mbcrypt/config.m4` ne propageait pas la macro `MBCRYPT_HAS_OPENSSL` a
+`mbcrypt_lib.c` lors d'une compilation `phpize` (elle n'atteignait que
+`mbcryptload.c` via `config.h`), si bien que **tout `.so` Linux compile
+avant ce correctif ne pouvait pas dechiffrer les fichiers AES-256-GCM**
+— `phpinfo()`/`--ri` affichait pourtant `AES-256-GCM => enabled` de
+maniere trompeuse. Le mode XOR legacy n'etait pas affecte. Detail
+complet dans `build/GUIDE-COMPILATION-LINUX.md` section "Bug corrige".

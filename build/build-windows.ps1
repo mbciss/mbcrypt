@@ -14,6 +14,7 @@ $DEVEL_DIR   = Join-Path $SCRIPT_DIR "devel-packs"
 
 $SRC1     = Join-Path $PROJECT_DIR "mbcrypt\mbcryptload.c"
 $SRC2     = Join-Path $PROJECT_DIR "mbcrypt\mbcrypt_lib.c"
+$SRC3     = Join-Path $PROJECT_DIR "mbcrypt\mbpak_lib.c"   # .mbpak archive support, always linked into mbcryptload.c
 $SRC_CLI1 = Join-Path $PROJECT_DIR "mbcrypt\mbcrypt.c"
 $SRC_CLI2 = Join-Path $PROJECT_DIR "mbcrypt\mbcrypt_lib.c"
 $CLI_EXE  = Join-Path $DIST_DIR    "mbcrypt.exe"
@@ -202,6 +203,7 @@ function Build-Ext {
     # Source files
     $args += "`"$SRC1`""
     $args += "`"$SRC2`""
+    $args += "`"$SRC3`""
 
     # Linker
     $args += "/link"
@@ -237,6 +239,7 @@ function Build-Ext {
     # Don't remove *.lib - might delete zlib.lib in current dir
     Remove-Item "mbcryptload.lib" -Force -ErrorAction SilentlyContinue
     Remove-Item "mbcrypt_lib.lib" -Force -ErrorAction SilentlyContinue
+    Remove-Item "mbpak_lib.lib" -Force -ErrorAction SilentlyContinue
 
     if ($code -ne 0) {
         Log-Fail "Compilation failed (exit $code)"

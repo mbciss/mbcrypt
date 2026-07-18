@@ -71,7 +71,9 @@ if test "$PHP_MBCRYPTLOAD" != "no"; then
     fi
   fi
 
+  MBCRYPTLOAD_EXTRA_CFLAGS=""
   if test "$OPENSSL_FOUND" = "yes"; then
+    MBCRYPTLOAD_EXTRA_CFLAGS="-DMBCRYPT_HAS_OPENSSL"
     AC_MSG_RESULT([yes — AES-256-GCM enabled])
   else
     AC_MSG_RESULT([no — AES-256-GCM disabled (legacy XOR only)])
@@ -79,10 +81,29 @@ if test "$PHP_MBCRYPTLOAD" != "no"; then
 
   dnl -----------------------------------------------------------------------
   dnl Build the extension
+  dnl
+  dnl mbcrypt_lib.c is shared verbatim with the standalone CLI encoder
+  dnl (build/build-ubuntu.sh, mbcrypt/Makefile) and deliberately does NOT
+  dnl include config.h, so it never sees the AC_DEFINE([MBCRYPT_HAS_OPENSSL])
+  dnl above -- that define only reaches mbcryptload.c, which does include
+  dnl config.h. Without passing the flag explicitly here (5th arg = extra
+  dnl per-extension CFLAGS, same mechanism PHP_NEW_EXTENSION already uses
+  dnl internally for -DZEND_COMPILE_DL_EXT=1), mbcrypt_lib.c compiles its
+  dnl AES-256-GCM routines out entirely: the extension still links OpenSSL
+  dnl and reports "AES-256-GCM enabled" in phpinfo(), but
+  dnl mbcrypt_lib_decode() silently takes its `#else return NULL` branch
+  dnl for every AES-encrypted file (legacy XOR files are unaffected).
   dnl -----------------------------------------------------------------------
+  dnl mbpak_lib.c (the .mbpak read/write archive format, see ../mbpak/)
+  dnl is a vendored copy that never includes config.h either, so it
+  dnl rides along on the same MBCRYPTLOAD_EXTRA_CFLAGS as mbcrypt_lib.c
+  dnl above for the same reason -- it calls mbcrypt_lib_encode/decode()
+  dnl in AES-GCM mode and needs that translation unit built with
+  dnl MBCRYPT_HAS_OPENSSL, otherwise mbpak archives would silently fail
+  dnl to decrypt exactly like a lone AES-encrypted .php file would.
   PHP_NEW_EXTENSION(mbcryptload,
-    mbcryptload.c mbcrypt_lib.c,
-    $ext_shared)
+    mbcryptload.c mbcrypt_lib.c mbpak_lib.c,
+    $ext_shared,, $MBCRYPTLOAD_EXTRA_CFLAGS)
 
   PHP_SUBST(MBCRYPTLOAD_SHARED_LIBADD)
 fi

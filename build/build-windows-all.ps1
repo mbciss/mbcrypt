@@ -18,6 +18,7 @@ $DEVEL_DIR   = Join-Path $SCRIPT_DIR "devel-packs"
 
 $SRC1 = Join-Path $PROJECT_DIR "mbcrypt\mbcryptload.c"
 $SRC2 = Join-Path $PROJECT_DIR "mbcrypt\mbcrypt_lib.c"
+$SRC3 = Join-Path $PROJECT_DIR "mbcrypt\mbpak_lib.c"   # .mbpak archive support, always linked into mbcryptload.c
 
 # ---------------------------------------------------------------------------
 # Toolchains
@@ -194,6 +195,7 @@ function Build-Ext {
 
     $args += "`"$SRC1`""
     $args += "`"$SRC2`""
+    $args += "`"$SRC3`""
 
     $args += "/link"
     $args += "/DLL"
@@ -221,6 +223,7 @@ function Build-Ext {
     Remove-Item "*.exp" -Force -ErrorAction SilentlyContinue
     Remove-Item "mbcryptload.lib" -Force -ErrorAction SilentlyContinue
     Remove-Item "mbcrypt_lib.lib" -Force -ErrorAction SilentlyContinue
+    Remove-Item "mbpak_lib.lib" -Force -ErrorAction SilentlyContinue
 
     if ($code -ne 0) {
         Log-Fail "Compilation failed (exit $code)"

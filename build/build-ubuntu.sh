@@ -1,7 +1,18 @@
 #!/usr/bin/env bash
-# build-ubuntu.sh - Compile mbcryptload.so + mbcrypt pour PHP 8.1 / 8.2 / 8.3
+# build-ubuntu.sh - Compile mbcryptload.so + mbcrypt pour PHP 8.0 a 8.5
 # Auteur : CISSE Mohamed Bassirou
 # Usage  : bash build/build-ubuntu.sh
+#
+# Compile directement contre les PHP installes sur CETTE machine (via
+# phpize/php-config) -- une seule variante (NTS ou TS/ZTS) par version,
+# celle du PHP installe. Necessite les paquets php8.x-dev correspondants
+# (ajouter le PPA ondrej/php pour couvrir 8.0-8.5 simultanement sur
+# Ubuntu/Debian, voir build/GUIDE-COMPILATION-LINUX.md).
+#
+# Pour une matrice complete et reproductible (8.0-8.5 x NTS+ZTS, sans
+# toucher au systeme, sans sudo) : utiliser build/build-linux-docker.sh
+# a la place -- c'est la methode recommandee pour produire les binaires
+# a distribuer.
 
 set -euo pipefail
 
@@ -16,7 +27,7 @@ DIST_DIR="$SCRIPT_DIR/dist"
 mkdir -p "$DIST_DIR"
 
 # Versions PHP a compiler (on ne compile que celles presentes sur le systeme)
-PHP_VERSIONS=(8.1 8.2 8.3)
+PHP_VERSIONS=(8.0 8.1 8.2 8.3 8.4 8.5)
 
 # ---------------------------------------------------------------------------
 # Couleurs
@@ -74,6 +85,12 @@ if [ "$MISSING" -eq 1 ]; then
     echo -e "    ${YELLOW}sudo apt update && sudo apt install -y \\"
     echo -e "        build-essential zlib1g-dev libssl-dev \\"
     echo -e "        php8.3-dev php8.2-dev php8.1-dev${NC}"
+    echo ""
+    echo "    Ubuntu/Debian ne fournissent qu'une seule version de PHP a la"
+    echo "    fois dans les depots officiels. Pour installer 8.0 a 8.5 en"
+    echo "    parallele (paquets phpX.Y-dev), ajouter le PPA ondrej/php :"
+    echo -e "    ${YELLOW}sudo add-apt-repository ppa:ondrej/php && sudo apt update${NC}"
+    echo "    Voir build/GUIDE-COMPILATION-LINUX.md pour le detail."
     exit 1
 fi
 
@@ -130,6 +147,8 @@ for VER in "${PHP_VERSIONS[@]}"; do
     cp "$SRC_DIR/mbcryptload.c"   "$BUILD_TMP/"
     cp "$SRC_DIR/mbcrypt_lib.c"   "$BUILD_TMP/"
     cp "$SRC_DIR/mbcrypt_lib.h"   "$BUILD_TMP/"
+    cp "$SRC_DIR/mbpak_lib.c"     "$BUILD_TMP/"
+    cp "$SRC_DIR/mbpak_lib.h"     "$BUILD_TMP/"
     cp "$SRC_DIR/php_mbcryptload.h" "$BUILD_TMP/"
     cp "$SRC_DIR/config.m4"       "$BUILD_TMP/"
 
