@@ -193,11 +193,15 @@ fichiers lus -- au lieu de O(N) dérivations PBKDF2 complètes.
 - Intégration PHP : implémentée (`mbpak_mount`/`unmount`/`list`/`get`/
   `put`/`delete`/`compact` + wrapper `mbpak://` en lecture seule +
   `url_stat` -- `file_exists()`/`is_file()`/`filesize()`/`filemtime()`
-  fonctionnent sans rien déchiffrer, voir `../mbcrypt/mbcryptload.c` et
-  `../pistes-a-explorer.md` section "Approche C" pour le détail, y
-  compris deux pièges rencontrés et corrigés pendant les tests). Le
-  wrapper ne supporte pas `fopen(..., "w")` -- c'est un choix, pas un
-  oubli : écrire via `mbpak_put()` reflète le vrai protocole d'append +
-  commit au lieu de simuler un fichier POSIX que l'archive n'est pas.
+  fonctionnent sans rien déchiffrer + `dir_opener` --
+  `scandir()`/`opendir()`/`RecursiveDirectoryIterator`/Symfony `Finder`
+  fonctionnent aussi, les répertoires étant synthétisés à la volée à
+  partir des chemins plats de la TOC (même principe que
+  `ext/phar/dirstream.c`), voir `../mbcrypt/mbcryptload.c` et
+  `../pistes-a-explorer.md` section "Approche C" pour le détail complet,
+  pièges rencontrés compris). Le wrapper ne supporte pas
+  `fopen(..., "w")` -- c'est un choix, pas un oubli : écrire via
+  `mbpak_put()` reflète le vrai protocole d'append + commit au lieu de
+  simuler un fichier POSIX que l'archive n'est pas.
   `stream_stat` (fstat sur un handle déjà ouvert) n'est pas implémenté,
   rien n'en a eu besoin jusqu'ici.

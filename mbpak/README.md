@@ -160,12 +160,21 @@ n'est qu'en chargeant une vraie page, avec de vraies classes
 autoloadées, que le problème est devenu visible -- exactement le genre
 de défaut qu'un test synthétique à un seul fichier ne révèle pas.
 
-Ce que ce test **ne** couvre pas : `vendor/` (dépendances Composer,
-volontairement laissé sur disque -- code open-source, pas de valeur à
-cacher, et des milliers de fichiers auraient nécessité d'implémenter
-`is_dir()`/listage de répertoire pour `mbpak://`), `storage/`, les caches
-`bootstrap/cache/` (voir la discussion "quoi packer / quoi laisser" plus
-bas dans `pistes-a-explorer.md`).
+**Suite (`test/laravel-mbpak/`)** : `config/`, `routes/web.php` et
+`resources/views/` ont depuis été ajoutés au périmètre empaqueté (en
+plus de `app/`) sur un Laravel complet, avec vue Blade compilée et
+config chargée depuis l'archive. Ça a motivé l'implémentation de
+`dir_opener` (`scandir()`/Symfony Finder fonctionnent sur `mbpak://`) et
+a mis au jour deux limitations propres à Laravel, pas à mbpak
+(`realpath()` bloque `routes/console.php` et le scan par défaut de
+`config/` -- contournable via `php artisan config:cache`, détail complet
+et procédure reproductible dans `../test/laravel-mbpak/README.md`).
+
+Ce que ni ce test ni le précédent ne couvrent : `vendor/` (dépendances
+Composer, volontairement laissé sur disque -- code open-source, pas de
+valeur à cacher, des milliers de fichiers), `storage/`, les caches
+`bootstrap/cache/` autres que `config.php` (voir la discussion "quoi
+packer / quoi laisser" plus bas dans `pistes-a-explorer.md`).
 
 ## Auteur
 

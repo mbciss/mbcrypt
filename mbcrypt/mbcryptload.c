@@ -532,8 +532,10 @@ PHP_FUNCTION(mbpak_compact)
  * file_exists()/is_file()/filesize()/filemtime() work without opening
  * anything -- required for Composer's autoloader (and anything else
  * that probes candidate paths) to function against mbpak:// paths.
- * stream_stat (fstat() on an already-open handle) is not implemented;
- * nothing in this extension needs it yet.
+ * dir_opener is also implemented (see mbpak_stream_dir_opener below)
+ * so opendir()/readdir()/scandir() and anything built on them (Symfony
+ * Finder, in particular) work too. stream_stat (fstat() on an
+ * already-open handle) is not implemented; nothing needs it yet.
  * ================================================================== */
 
 static php_stream *mbpak_stream_opener(php_stream_wrapper *wrapper,
@@ -650,19 +652,246 @@ static int mbpak_stream_url_stat(php_stream_wrapper *wrapper, const char *url,
             break;
         }
     }
-    if (!e) return -1; /* not found -- deliberately silent even if not
-                         * quiet: this is the expected outcome of most
-                         * file_exists() calls an autoloader makes    */
 
-    memset(ssb, 0, sizeof(php_stream_statbuf));
-    ssb->sb.st_mode  = S_IFREG | 0444; /* regular file, read-only     */
-    ssb->sb.st_nlink = 1;
-    ssb->sb.st_size  = (off_t)   e->size;
-    ssb->sb.st_mtime = (time_t)  e->mtime;
-    ssb->sb.st_atime = (time_t)  e->mtime;
-    ssb->sb.st_ctime = (time_t)  e->mtime;
+    if (e) {
+        /* exact match: a regular file */
+        memset(ssb, 0, sizeof(php_stream_statbuf));
+        ssb->sb.st_mode  = S_IFREG | 0444; /* regular file, read-only  */
+        ssb->sb.st_nlink = 1;
+        ssb->sb.st_size  = (off_t)   e->size;
+        ssb->sb.st_mtime = (time_t)  e->mtime;
+        ssb->sb.st_atime = (time_t)  e->mtime;
+        ssb->sb.st_ctime = (time_t)  e->mtime;
+        return 0;
+    }
+
+    /* No exact file match. The .mbpak TOC has no directory entries of
+     * its own (see mbpak_lib.h) -- a "directory" only exists in the
+     * sense that some live file's path starts with "vpath/". Without
+     * this, is_dir() (and anything that calls it, e.g. Symfony
+     * Finder/RecursiveDirectoryIterator deciding whether to recurse
+     * into an mbpak_stream_dir_opener() entry) would always see a
+     * synthesized directory as "not found" and stop right there. The
+     * empty vpath (root, "mbpak://") always counts as a directory. */
+    {
+        size_t vlen = strlen(vpath);
+        int is_synth_dir = (vlen == 0);
+
+        if (!is_synth_dir) {
+            for (e = mbpak_list(MBCRYPTLOAD_G(mounted)); e; e = e->next) {
+                size_t plen;
+                if (e->flags & MBPAK_FLAG_TOMBSTONE) continue;
+                plen = strlen(e->path);
+                if (plen > vlen && strncmp(e->path, vpath, vlen) == 0 &&
+                    e->path[vlen] == '/') {
+                    is_synth_dir = 1;
+                    break;
+                }
+            }
+        }
+
+        if (!is_synth_dir) return -1; /* genuinely not found -- deliberately
+                                        * silent even if not quiet: the
+                                        * expected outcome of most
+                                        * file_exists() probes           */
+
+        memset(ssb, 0, sizeof(php_stream_statbuf));
+        ssb->sb.st_mode  = S_IFDIR | 0555; /* synthesized directory, read-only */
+        ssb->sb.st_nlink = 2;
+        return 0;
+    }
 
     return 0;
+}
+
+/* ==================================================================
+ * mbpak:// directory listing (opendir/readdir/closedir)
+ *
+ * The .mbpak TOC has no real directory concept, only flat file paths
+ * (see mbpak_lib.h's format doc). PHP code that scans a "directory"
+ * instead of checking specific paths -- Symfony Finder in particular,
+ * which Laravel's LoadConfiguration bootstrapper uses to enumerate
+ * config/*.php when config caching isn't in effect -- needs opendir()
+ * to work anyway. Directories are synthesized the same way
+ * ext/phar/dirstream.c does it for an identical reason (a phar's own
+ * manifest is equally flat): walk every live TOC entry, and for a
+ * requested prefix, collect the first path component after it,
+ * deduplicated and sorted, into a HashTable that back a directory
+ * php_stream exactly the way phar_make_dirstream()'s does.
+ * ================================================================== */
+
+static ssize_t mbpak_dir_read(php_stream *stream, char *buf, size_t count)
+{
+    HashTable *data = (HashTable *)stream->abstract;
+    zend_string *str_key;
+    zend_ulong unused;
+    php_stream_dirent *dirent;
+
+    if (count != sizeof(php_stream_dirent)) return -1;
+    if (HASH_KEY_NON_EXISTENT == zend_hash_get_current_key(data, &str_key, &unused))
+        return 0;
+    zend_hash_move_forward(data);
+
+    dirent = (php_stream_dirent *)buf;
+    if (sizeof(dirent->d_name) <= ZSTR_LEN(str_key)) return 0;
+
+    memset(dirent, 0, sizeof(php_stream_dirent));
+    PHP_STRLCPY(dirent->d_name, ZSTR_VAL(str_key), sizeof(dirent->d_name), ZSTR_LEN(str_key));
+    return sizeof(php_stream_dirent);
+}
+
+static int mbpak_dir_close(php_stream *stream, int close_handle)
+{
+    HashTable *data = (HashTable *)stream->abstract;
+
+    (void)close_handle;
+    if (data) {
+        zend_hash_destroy(data);
+        FREE_HASHTABLE(data);
+        stream->abstract = NULL;
+    }
+    return 0;
+}
+
+static ssize_t mbpak_dir_write(php_stream *stream, const char *buf, size_t count)
+{
+    (void)stream; (void)buf; (void)count;
+    return -1; /* directory streams are never writable */
+}
+
+static int mbpak_dir_flush(php_stream *stream)
+{
+    (void)stream;
+    return EOF;
+}
+
+/* SPL's RecursiveDirectoryIterator (and therefore Symfony Finder, used
+ * by Laravel's LoadConfiguration to scan config/) rewinds/seeks a
+ * directory stream while it recurses -- without this, iteration over
+ * mbpak:// silently stops after the first level with a "Stream does
+ * not support seeking" warning. Mirrors ext/phar/dirstream.c's
+ * phar_dir_seek() exactly, same HashTable-backed cursor idea. */
+static int mbpak_dir_seek(php_stream *stream, zend_off_t offset, int whence,
+                           zend_off_t *newoffset)
+{
+    HashTable *data = (HashTable *)stream->abstract;
+
+    if (!data) return -1;
+
+    if (whence == SEEK_END) {
+        whence = SEEK_SET;
+        offset = zend_hash_num_elements(data) + offset;
+    }
+    if (whence == SEEK_SET) {
+        zend_hash_internal_pointer_reset(data);
+    }
+    if (offset < 0) {
+        return -1;
+    }
+
+    *newoffset = 0;
+    while (*newoffset < offset && zend_hash_move_forward(data) == SUCCESS) {
+        ++(*newoffset);
+    }
+    return 0;
+}
+
+static const php_stream_ops mbpak_dir_ops = {
+    mbpak_dir_write,
+    mbpak_dir_read,
+    mbpak_dir_close,
+    mbpak_dir_flush,
+    "mbpak dir",
+    mbpak_dir_seek,
+    NULL, /* cast        */
+    NULL, /* stat        */
+    NULL  /* set_option  */
+};
+
+static int mbpak_dir_name_cmp(Bucket *a, Bucket *b)
+{
+    return zend_binary_strcmp(ZSTR_VAL(a->key), ZSTR_LEN(a->key),
+                               ZSTR_VAL(b->key), ZSTR_LEN(b->key));
+}
+
+static php_stream *mbpak_stream_dir_opener(php_stream_wrapper *wrapper,
+                                            const char *path, const char *mode,
+                                            int options, zend_string **opened_path,
+                                            php_stream_context *context STREAMS_DC)
+{
+    const char *vdir;
+    size_t vdir_len;
+    HashTable *data;
+    const mbpak_entry_t *e;
+
+    (void)wrapper; (void)mode; (void)context;
+    if (opened_path) *opened_path = NULL;
+
+    if (strncmp(path, "mbpak://", 8) != 0) return NULL;
+    vdir = path + 8;
+    vdir_len = strlen(vdir);
+    while (vdir_len > 0 && vdir[vdir_len - 1] == '/') vdir_len--; /* "config" == "config/" */
+
+    if (!MBCRYPTLOAD_G(mounted)) {
+        if (options & REPORT_ERRORS) {
+            php_error_docref(NULL, E_WARNING,
+                "mbpak dir: no archive mounted (call mbpak_mount() first)");
+        }
+        return NULL;
+    }
+
+    ALLOC_HASHTABLE(data);
+    zend_hash_init(data, 8, NULL, NULL, 0);
+
+    for (e = mbpak_list(MBCRYPTLOAD_G(mounted)); e; e = e->next) {
+        const char *rel, *slash;
+        size_t complen;
+
+        if (e->flags & MBPAK_FLAG_TOMBSTONE) continue;
+
+        if (vdir_len == 0) {
+            rel = e->path; /* root: every live entry is "under" it */
+        } else {
+            size_t plen = strlen(e->path);
+            if (plen <= vdir_len)                          continue;
+            if (strncmp(e->path, vdir, vdir_len) != 0)      continue;
+            if (e->path[vdir_len] != '/')                   continue;
+            rel = e->path + vdir_len + 1;
+            if (!*rel) continue;
+        }
+
+        /* first path component after the prefix -- a leaf file name if
+         * there's no further '/', otherwise a synthesized subdirectory
+         * name. zend_hash_str_add_empty_element() silently no-ops on an
+         * existing key, which is exactly the dedup wanted here (many
+         * files commonly share the same immediate subdirectory). */
+        slash = strchr(rel, '/');
+        complen = slash ? (size_t)(slash - rel) : strlen(rel);
+        if (!complen) continue;
+
+        zend_hash_str_add_empty_element(data, rel, complen);
+    }
+
+    /* Root always "exists" (even an empty archive has an empty root
+     * directory). Anything else with zero matches is not a directory
+     * that exists in this archive -- the format has no concept of an
+     * explicitly-created empty directory, only file paths, so "no file
+     * lives under this prefix" and "this directory does not exist" are
+     * the same thing here. Without this check, opendir()/scandir() on
+     * a bogus mbpak:// path would silently "succeed" with 0 entries
+     * instead of failing the way a real nonexistent directory would. */
+    if (vdir_len != 0 && zend_hash_num_elements(data) == 0) {
+        zend_hash_destroy(data);
+        FREE_HASHTABLE(data);
+        if (options & REPORT_ERRORS) {
+            php_error_docref(NULL, E_WARNING,
+                "mbpak dir: '%s' not found in the mounted archive", vdir);
+        }
+        return NULL;
+    }
+
+    zend_hash_sort(data, mbpak_dir_name_cmp, 0);
+    return php_stream_alloc(&mbpak_dir_ops, data, NULL, "r");
 }
 
 static const php_stream_wrapper_ops mbpak_stream_wrapper_ops = {
@@ -670,7 +899,7 @@ static const php_stream_wrapper_ops mbpak_stream_wrapper_ops = {
     NULL, /* stream_closer -- default stream teardown is enough        */
     NULL, /* stream_stat   -- no metadata beyond content                */
     mbpak_stream_url_stat,
-    NULL, /* dir_opener    -- no directory listing through the wrapper  */
+    mbpak_stream_dir_opener,
     "mbpak",
     NULL, /* unlink        -- use mbpak_delete() instead                */
     NULL, /* rename                                                     */

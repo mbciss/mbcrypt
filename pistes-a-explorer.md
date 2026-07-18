@@ -482,3 +482,120 @@ Correctif (format `.mbpak` v3, detail complet dans `mbpak/FORMAT.md`) :
   `mbpak/test/run.sh` + AddressSanitizer/UBSan sur un scenario
   pack/get/put/rm/compact avec des fichiers de taille reelle -- aucune
   fuite, aucun UB, aucune regression
+
+#### `dir_opener` + test Laravel etendu (app+config+routes+resources) -- session du 2026-07-18 (suite)
+
+Objectif : empaqueter `app/`, `config/`, `routes/` et `resources/` (pas
+seulement `app/` comme la session precedente) dans un vrai Laravel, et
+creer un dossier de test permanent + une procedure documentee (au lieu
+d'un test Docker jetable comme avant).
+
+**Blocage prevu des le depart** : Laravel scanne `config/` via
+`Symfony\Component\Finder\Finder` (utilise par
+`LoadConfiguration::getConfigurationFiles()`) plutot que de `require`r
+des chemins connus -- `app/`, `routes/web.php` et
+`resources/views/` n'ont pas ce probleme (require/`file_exists()`
+directs, deja valides). Implementation de `dir_opener` pour `mbpak://`
+avant d'attaquer le test, modelisee directement sur
+`ext/phar/dirstream.c` de php-src (meme probleme : synthetiser une
+arborescence de repertoires a partir d'un manifeste plat, aucune notion
+de dossier reel dans le format).
+
+- `mbpak_stream_dir_opener()` dans `mbcryptload.c` : parcourt
+  `mbpak_list()`, extrait pour un prefixe donne le premier segment de
+  chemin apres ce prefixe (fichier feuille ou sous-dossier synthetise),
+  deduplique via `zend_hash_str_add_empty_element()` dans une
+  `HashTable`, trie avec `zend_hash_sort()`. Reutilise `mbpak_dir_ops`
+  (`read`/`close`/`write`/`flush`) sur le meme modele que
+  `phar_dir_ops`
+- **Trois bugs trouves et corriges pendant les tests** (avant toute
+  documentation "termine") :
+  1. Pas de `seek` sur le flux repertoire -> `RecursiveDirectoryIterator`
+     (utilise en interne par Symfony Finder) echouait avec *"Stream does
+     not support seeking"* et n'explorait que le premier niveau. Corrige
+     en ajoutant `mbpak_dir_seek()`, copie quasi a l'identique de
+     `phar_dir_seek()`
+  2. `is_dir("mbpak://config")` renvoyait toujours `false` -- `url_stat`
+     ne cherchait qu'une correspondance exacte de fichier dans la TOC, un
+     repertoire synthetise (aucune entree exacte, seulement des fichiers
+     "en dessous") n'etait jamais reconnu. Sans ca,
+     `RecursiveDirectoryIterator` ne descendait dans aucun sous-dossier.
+     Corrige en detectant aussi les repertoires synthetises dans
+     `mbpak_stream_url_stat()` (`S_IFDIR` si au moins une entree vivante
+     commence par `vpath/`)
+  3. `scandir()`/`opendir()` sur un chemin qui n'existe pas du tout
+     renvoyait un tableau vide au lieu d'echouer (`false`) -- corrige en
+     verifiant qu'au moins une entree corresponde avant de retourner un
+     flux repertoire valide
+- Verifie avec de vrais outils, pas seulement des iterateurs SPL a la
+  main : `scandir()`, `opendir()`/`readdir()`/`closedir()`,
+  `RecursiveDirectoryIterator`, et **`Symfony\Component\Finder\Finder`**
+  installe via Composer dans le conteneur de test, avec exactement le
+  meme appel que `LoadConfiguration::getConfigurationFiles()`
+  (`Finder::create()->files()->name('*.php')->in(...)`)
+
+**Blocages Laravel reels decouverts en lisant le vrai code source**
+(pas des suppositions -- `laravel/framework` 11.x/13.x sur GitHub) :
+- `Illuminate\Foundation\Configuration\ApplicationBuilder::withRouting()`
+  fait `realpath($commands) !== false` avant d'enregistrer
+  `routes/console.php` (parametre `commands:`) -- toujours faux pour un
+  chemin `mbpak://`, silencieusement ignore. Ce test ne s'applique **pas**
+  a `web:`/`api:` quand ils sont passes en chaine simple (le defaut),
+  d'ou l'asymetrie : `routes/web.php` fonctionne, `routes/console.php`
+  doit rester sur disque
+- `LoadConfiguration::getConfigurationFiles()` fait
+  `realpath($app->configPath())` avant de lancer le `Finder` -- renvoie
+  toujours `false` pour `mbpak://config` (limitation PHP fondamentale,
+  `realpath()` ne resout jamais un schema de flux personnalise, aucun
+  wrapper ne peut changer ca), et Laravel retourne alors une liste de
+  fichiers de configuration **vide**, silencieusement. Le vrai
+  `dir_opener` ci-dessus ne suffit donc pas seul pour `config/` --
+  necessite `php artisan config:cache` genere **avant** l'empaquetage
+  (mecanisme deja recommande par Laravel en production, independamment
+  de mbpak) ; une fois le cache present,
+  `file_exists($app->getCachedConfigPath())` court-circuite le scan
+  entierement
+- Consequence subtile : des que `bootstrap/app.php` pointe `web:` vers
+  `mbpak://`, **tout** boot de l'application (HTTP ou CLI) tente de
+  `require` cette route au demarrage -- y compris un simple `composer
+  dump-autoload` (qui declenche `@php artisan package:discover` en
+  post-hook) ou n'importe quelle commande `artisan`. D'ou l'obligation
+  de faire tourner toutes les commandes composer/artisan **avant** de
+  repointer `bootstrap/app.php` et la classmap Composer vers `mbpak://`,
+  et d'ajouter `mbpak_mount()` aussi dans `artisan` (pas seulement
+  `public/index.php`) pour que les commandes CLI fonctionnent ensuite
+- `SplFileInfo::getRealPath()` sur un resultat de Finder iterant
+  `mbpak://` leve `ValueError: Path cannot be empty` -- utiliser
+  `getPathname()`. `FileViewFinder::resolvePath()` s'en sort seule
+  (`realpath($path) ?: $path`, repli silencieux), mais tout code qui
+  appelle `getRealPath()` directement casserait pareil
+
+**Resultat final** : Laravel 13.20.0 sert sa page d'accueil (vue
+`welcome` compilee depuis `mbpak://resources/views`) et une route de
+verification (JSON avec `User::count()` reel sur SQLite, heritage
+`TestController extends Controller` entre deux fichiers separement
+charges depuis l'archive, valeur de config lue depuis
+`bootstrap/cache/config.php` genere a partir de `mbpak://`) -- avec
+`app/`, `config/`, `resources/views/` et `routes/web.php` **totalement
+absents du disque**. `php artisan route:list` et `artisan tinker`
+confirment aussi le support CLI. `vendor/`, `storage/`,
+`bootstrap/cache/` (hormis `config.php`) restent volontairement sur
+disque (voir tableau perimetre dans
+`test/laravel-mbpak/README.md`).
+
+Procedure automatisee et documentee dans **`test/laravel-mbpak/`**
+(nouveau, permanent, contrairement aux tests Docker jetables des
+sessions precedentes) : `setup.sh` reproduit tout le scenario de bout
+en bout (execute deux fois de suite avec succes pendant la mise au
+point -- a d'ailleurs revele un bug du script lui-meme : `set -o
+pipefail` + `docker exec ... | head -N` fait echouer le script une
+fois sur deux par SIGPIPE quand `head` ferme le tube en premier ;
+corrige en capturant la sortie dans une variable avant de la tronquer),
+`README.md` documente le perimetre (quoi empaqueter/laisser), la liste
+exacte des fichiers Laravel a modifier, l'ordre des operations
+(critique), le compromis honnete sur `config/`, et les trois pieges
+ci-dessus.
+
+Verifie aussi sous Valgrind (`--leak-check=full`) sur le scenario
+`dir_opener` complet (scandir/opendir/Finder recursif) : 0 erreur, 0
+fuite, tous les blocs liberes.
