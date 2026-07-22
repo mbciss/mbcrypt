@@ -1,0 +1,10 @@
+[1/9] pack
+[2/9] list
+[3/9] extract + integrity
+[4/9] put (update, append-only)
+[5/9] rm + compact reclaims space
+[6/9] wrong password rejected
+[7/9] tamper detection (GCM auth)
+[8/9] empty archive
+[9/9] refuse to overwrite an existing archive
+ALL TESTS PASSED

@@ -52,6 +52,22 @@ make clean
 Le Makefile compile `../mbcrypt/mbcrypt_lib.c` en objet local
 (`mbcrypt_lib.o`) sans jamais écrire dans `../mbcrypt/`.
 
+### Windows
+
+```powershell
+powershell.exe -ExecutionPolicy Bypass -File ..\build\build-windows-mbpak.ps1
+```
+
+Produit `..\build\dist\mbpak.exe` (zlib + OpenSSL Win64, un seul binaire
+pour toutes les versions de PHP -- `mbpak.exe` n'a aucune dependance
+PHP). `mbpak_cli.c` était déjà portable (chemin `#ifdef _WIN32` avec
+`FindFirstFileA`/`CreateDirectoryA`), aucune modification de source n'a
+été nécessaire. Test fonctionnel équivalent à `test/run.sh` porté sous
+Git Bash : voir
+`../build/INTEGRATION-MBPAK-WINDOWS/GUIDE-INTEGRATION-COMPLETE.md`
+(9/9 PASS, plus la matrice complète 12 versions PHP x NTS/TS du wrapper
+`mbpak://`, 12/12 PASS).
+
 ## Usage
 
 ```bash

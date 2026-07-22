@@ -1,0 +1,93 @@
+﻿
+==> Environment check
+    [OK] cl.exe VS2019 (vs16): C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools\VC\Tools\MSVC\14.29.30133\bin\Hostx64\x64\cl.exe
+    [OK] cl.exe VS2022 (vs17): C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.43.34808\bin\Hostx64\x64\cl.exe
+    [OK] OpenSSL: C:\Program Files\OpenSSL-Win64\include
+    [OK] Devel pack 8.0.30 (ts) already extracted.
+
+==> Compiling PHP 8.0.30 TS (vs16)
+    Compiling...
+    [OK] DLL: Z:\PHP CRYPT V2025\build\dist\php_mbcryptload_php80_ts.dll
+    [OK] Devel pack 8.0.30 (nts) already extracted.
+
+==> Compiling PHP 8.0.30 NTS (vs16)
+    Compiling...
+    [OK] DLL: Z:\PHP CRYPT V2025\build\dist\php_mbcryptload_php80_nts.dll
+    [OK] Devel pack 8.1.10 (ts) already extracted.
+
+==> Compiling PHP 8.1.10 TS (vs16)
+    Compiling...
+    [OK] DLL: Z:\PHP CRYPT V2025\build\dist\php_mbcryptload_php81_ts.dll
+    [OK] Devel pack 8.1.10 (nts) already extracted.
+
+==> Compiling PHP 8.1.10 NTS (vs16)
+    Compiling...
+    [OK] DLL: Z:\PHP CRYPT V2025\build\dist\php_mbcryptload_php81_nts.dll
+    [OK] Devel pack 8.2.15 (ts) already extracted.
+
+==> Compiling PHP 8.2.15 TS (vs16)
+    Compiling...
+    [OK] DLL: Z:\PHP CRYPT V2025\build\dist\php_mbcryptload_php82_ts.dll
+    [OK] Devel pack 8.2.15 (nts) already extracted.
+
+==> Compiling PHP 8.2.15 NTS (vs16)
+    Compiling...
+    [OK] DLL: Z:\PHP CRYPT V2025\build\dist\php_mbcryptload_php82_nts.dll
+    [OK] Devel pack 8.3.16 (ts) already extracted.
+
+==> Compiling PHP 8.3.16 TS (vs16)
+    Compiling...
+    [OK] DLL: Z:\PHP CRYPT V2025\build\dist\php_mbcryptload_php83_ts.dll
+    [OK] Devel pack 8.3.16 (nts) already extracted.
+
+==> Compiling PHP 8.3.16 NTS (vs16)
+    Compiling...
+    [OK] DLL: Z:\PHP CRYPT V2025\build\dist\php_mbcryptload_php83_nts.dll
+    [OK] Devel pack 8.4.23 (ts) already extracted.
+
+==> Compiling PHP 8.4.23 TS (vs17)
+    Compiling...
+    [OK] DLL: Z:\PHP CRYPT V2025\build\dist\php_mbcryptload_php84_ts.dll
+    [OK] Devel pack 8.4.23 (nts) already extracted.
+
+==> Compiling PHP 8.4.23 NTS (vs17)
+    Compiling...
+    [OK] DLL: Z:\PHP CRYPT V2025\build\dist\php_mbcryptload_php84_nts.dll
+    [OK] Devel pack 8.5.8 (ts) already extracted.
+
+==> Compiling PHP 8.5.8 TS (vs17)
+    Compiling...
+    [OK] DLL: Z:\PHP CRYPT V2025\build\dist\php_mbcryptload_php85_ts.dll
+    [OK] Devel pack 8.5.8 (nts) already extracted.
+
+==> Compiling PHP 8.5.8 NTS (vs17)
+    Compiling...
+    [OK] DLL: Z:\PHP CRYPT V2025\build\dist\php_mbcryptload_php85_nts.dll
+
+==> Summary
+    PHP 8.0.30-nts : OK
+    PHP 8.0.30-ts : OK
+    PHP 8.1.10-nts : OK
+    PHP 8.1.10-ts : OK
+    PHP 8.2.15-nts : OK
+    PHP 8.2.15-ts : OK
+    PHP 8.3.16-nts : OK
+    PHP 8.3.16-ts : OK
+    PHP 8.4.23-nts : OK
+    PHP 8.4.23-ts : OK
+    PHP 8.5.8-nts : OK
+    PHP 8.5.8-ts : OK
+
+DLLs in: Z:\PHP CRYPT V2025\build\dist
+    php_mbcryptload_php80_nts.dll  (37.5 KB)
+    php_mbcryptload_php80_ts.dll  (38.5 KB)
+    php_mbcryptload_php81_nts.dll  (38 KB)
+    php_mbcryptload_php81_ts.dll  (39 KB)
+    php_mbcryptload_php82_nts.dll  (38 KB)
+    php_mbcryptload_php82_ts.dll  (39 KB)
+    php_mbcryptload_php83_nts.dll  (38 KB)
+    php_mbcryptload_php83_ts.dll  (39 KB)
+    php_mbcryptload_php84_nts.dll  (39 KB)
+    php_mbcryptload_php84_ts.dll  (40 KB)
+    php_mbcryptload_php85_nts.dll  (39.5 KB)
+    php_mbcryptload_php85_ts.dll  (40.5 KB)

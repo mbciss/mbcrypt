@@ -11,3 +11,4 @@ build/php-static-builds/
 build/dist-linux/*.so
 build/dist-linux/mbcrypt
 build/*.log
+build/php-runtimes/

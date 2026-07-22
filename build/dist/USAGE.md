@@ -9,6 +9,7 @@ Date   : 2026-07-17
 
 ```
 mbcrypt.exe                         Encodeur CLI (chiffrement de fichiers PHP)
+mbpak.exe                           CLI d'archives .mbpak (pack/list/extract/put/get/rm/compact)
 
 php_mbcryptload_php80_ts.dll        PHP 8.0 - Thread Safe   (Apache mod_php, etc.)
 php_mbcryptload_php80_nts.dll       PHP 8.0 - Non Thread Safe (PHP-FPM, CLI)
@@ -317,6 +318,40 @@ mbcryptload_version() : string   // retourne "3.0.0"
 
 ---
 
+## 8bis. Archives `.mbpak` (empaquetage d'une application entiere)
+
+`mbpak.exe` empaquette un dossier entier dans un seul fichier chiffre
+(AES-256-GCM uniquement, pas de mode XOR) -- noms de fichiers et
+arborescence invisibles (TOC chiffree), mise a jour incrementale sans
+reecrire toute l'archive. Complementaire a `mbcrypt.exe` (qui protege un
+fichier a la fois) : voir `mbpak/README.md` et `mbpak/FORMAT.md` pour le
+detail complet du format et des garanties.
+
+```bat
+mbpak.exe pack    -p "mot-de-passe" -o app.mbpak app\
+mbpak.exe list    -p "mot-de-passe" app.mbpak
+mbpak.exe extract -p "mot-de-passe" -o out\ app.mbpak
+mbpak.exe put     -p "mot-de-passe" app.mbpak lib\auth.php nouveau_auth.php
+mbpak.exe get     -p "mot-de-passe" app.mbpak lib\auth.php
+mbpak.exe rm      -p "mot-de-passe" app.mbpak lib\auth.php
+mbpak.exe compact -p "mot-de-passe" app.mbpak
+```
+
+Depuis PHP (necessite la DLL `mbcryptload` correspondante, qui integre
+le wrapper `mbpak://` depuis le 2026-07-22 -- voir section 8) :
+
+```php
+<?php
+mbpak_mount("app.mbpak", "mot-de-passe");
+require "mbpak://index.php";                 // prefixe absolu obligatoire, pas __DIR__
+echo file_get_contents("mbpak://config.php");
+mbpak_put("config.php", "<?php return ['db'=>'staging'];\n");
+mbpak_delete("lib/old.php");
+mbpak_compact();
+print_r(mbpak_list());
+mbpak_unmount();
+```
+
 ## 8. Journal des correctifs
 
 ### 2026-07-17 — Crash au demarrage / arret de PHP (versions TS)
@@ -331,3 +366,17 @@ decharge la DLL en memoire.
 **Toutes les DLLs de ce dossier integrent le correctif.** Si vous
 utilisez une DLL compilee avant le 2026-07-17, recompilez avec
 `build\build-windows-all.ps1` ou `build\build-windows.ps1`.
+
+### 2026-07-22 — DLLs Windows perimees (mbpak absent) + `mbpak compact` casse sous Windows
+
+Les 12 DLLs presentes dans ce dossier avant cette date dataient du
+2026-07-17, soit **avant** l'integration du support `.mbpak` dans
+`mbcryptload.c` (2026-07-18) : elles ne contenaient pas les fonctions
+`mbpak_mount`/`mbpak_get`/... ni le wrapper `mbpak://`, malgre des
+scripts de build deja a jour. Recompilees (voir
+`build/INTEGRATION-MBPAK-WINDOWS/GUIDE-INTEGRATION-COMPLETE.md`).
+
+Independamment, `mbpak_compact()` (et la commande CLI `mbpak compact`)
+echouait a 100% sous Windows (`rename()` n'ecrase pas un fichier
+destination existant, contrairement a POSIX) -- corrige dans
+`mbpak_lib.c`. Detail complet dans le guide ci-dessus.

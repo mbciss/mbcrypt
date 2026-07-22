@@ -479,6 +479,15 @@ int mbpak_compact(mbpak_t *pak)
 
     fclose(pak->fp);
     pak->fp = NULL;
+#ifdef _WIN32
+    /* Unlike POSIX rename(), Win32 MoveFile (which the CRT rename() wraps)
+     * refuses to replace an existing destination -- drop the original
+     * first. The compacted archive is already complete and valid on disk
+     * (tmp_path) at this point, so this is safe: worst case on a crash
+     * between the two calls is a missing pak->path with tmp_path left
+     * over, recoverable by hand, never silent data loss. */
+    remove(pak->path);
+#endif
     if (rename(tmp_path, pak->path) != 0) {
         pak->fp = fopen(pak->path, "r+b"); /* rename failed: original untouched */
         return -1;

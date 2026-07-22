@@ -1,0 +1,112 @@
+﻿
+==> PHP 8.0.30 TS
+    Trying: https://windows.php.net/downloads/releases/php-8.0.30-Win32-vs16-x64.zip
+    [OK] Runtime: Z:\PHP CRYPT V2025\build\php-runtimes\8.0.30-ts
+    [OK] mbcrypt decrypt+execute: PASS
+    [OK] mbpak:// wrapper: PASS
+
+==> PHP 8.0.30 NTS
+    Trying: https://windows.php.net/downloads/releases/php-8.0.30-nts-Win32-vs16-x64.zip
+    [OK] Runtime: Z:\PHP CRYPT V2025\build\php-runtimes\8.0.30-nts
+    [OK] mbcrypt decrypt+execute: PASS
+    [OK] mbpak:// wrapper: PASS
+
+==> PHP 8.1.10 TS
+    Trying: https://windows.php.net/downloads/releases/php-8.1.10-Win32-vs16-x64.zip
+    [!!] Failed: https://windows.php.net/downloads/releases/php-8.1.10-Win32-vs16-x64.zip
+    Trying: https://windows.php.net/downloads/releases/archives/php-8.1.10-Win32-vs16-x64.zip
+    [OK] Runtime: Z:\PHP CRYPT V2025\build\php-runtimes\8.1.10-ts
+    [OK] mbcrypt decrypt+execute: PASS
+    [OK] mbpak:// wrapper: PASS
+
+==> PHP 8.1.10 NTS
+    Trying: https://windows.php.net/downloads/releases/php-8.1.10-nts-Win32-vs16-x64.zip
+    [!!] Failed: https://windows.php.net/downloads/releases/php-8.1.10-nts-Win32-vs16-x64.zip
+    Trying: https://windows.php.net/downloads/releases/archives/php-8.1.10-nts-Win32-vs16-x64.zip
+    [OK] Runtime: Z:\PHP CRYPT V2025\build\php-runtimes\8.1.10-nts
+    [OK] mbcrypt decrypt+execute: PASS
+    [OK] mbpak:// wrapper: PASS
+
+==> PHP 8.2.15 TS
+    Trying: https://windows.php.net/downloads/releases/php-8.2.15-Win32-vs16-x64.zip
+    [!!] Failed: https://windows.php.net/downloads/releases/php-8.2.15-Win32-vs16-x64.zip
+    Trying: https://windows.php.net/downloads/releases/archives/php-8.2.15-Win32-vs16-x64.zip
+    [OK] Runtime: Z:\PHP CRYPT V2025\build\php-runtimes\8.2.15-ts
+    [OK] mbcrypt decrypt+execute: PASS
+    [OK] mbpak:// wrapper: PASS
+
+==> PHP 8.2.15 NTS
+    Trying: https://windows.php.net/downloads/releases/php-8.2.15-nts-Win32-vs16-x64.zip
+    [!!] Failed: https://windows.php.net/downloads/releases/php-8.2.15-nts-Win32-vs16-x64.zip
+    Trying: https://windows.php.net/downloads/releases/archives/php-8.2.15-nts-Win32-vs16-x64.zip
+    [OK] Runtime: Z:\PHP CRYPT V2025\build\php-runtimes\8.2.15-nts
+    [OK] mbcrypt decrypt+execute: PASS
+    [OK] mbpak:// wrapper: PASS
+
+==> PHP 8.3.16 TS
+    Trying: https://windows.php.net/downloads/releases/php-8.3.16-Win32-vs16-x64.zip
+    [!!] Failed: https://windows.php.net/downloads/releases/php-8.3.16-Win32-vs16-x64.zip
+    Trying: https://windows.php.net/downloads/releases/archives/php-8.3.16-Win32-vs16-x64.zip
+    [OK] Runtime: Z:\PHP CRYPT V2025\build\php-runtimes\8.3.16-ts
+    [OK] mbcrypt decrypt+execute: PASS
+    [OK] mbpak:// wrapper: PASS
+
+==> PHP 8.3.16 NTS
+    Trying: https://windows.php.net/downloads/releases/php-8.3.16-nts-Win32-vs16-x64.zip
+    [!!] Failed: https://windows.php.net/downloads/releases/php-8.3.16-nts-Win32-vs16-x64.zip
+    Trying: https://windows.php.net/downloads/releases/archives/php-8.3.16-nts-Win32-vs16-x64.zip
+    [OK] Runtime: Z:\PHP CRYPT V2025\build\php-runtimes\8.3.16-nts
+    [OK] mbcrypt decrypt+execute: PASS
+    [OK] mbpak:// wrapper: PASS
+
+==> PHP 8.4.23 TS
+    Trying: https://windows.php.net/downloads/releases/php-8.4.23-Win32-vs17-x64.zip
+    [OK] Runtime: Z:\PHP CRYPT V2025\build\php-runtimes\8.4.23-ts
+    [OK] mbcrypt decrypt+execute: PASS
+    [OK] mbpak:// wrapper: PASS
+
+==> PHP 8.4.23 NTS
+    Trying: https://windows.php.net/downloads/releases/php-8.4.23-nts-Win32-vs17-x64.zip
+    [OK] Runtime: Z:\PHP CRYPT V2025\build\php-runtimes\8.4.23-nts
+    [OK] mbcrypt decrypt+execute: PASS
+    [OK] mbpak:// wrapper: PASS
+
+==> PHP 8.5.8 TS
+    Trying: https://windows.php.net/downloads/releases/php-8.5.8-Win32-vs17-x64.zip
+    [OK] Runtime: Z:\PHP CRYPT V2025\build\php-runtimes\8.5.8-ts
+    [OK] mbcrypt decrypt+execute: PASS
+    [OK] mbpak:// wrapper: PASS
+
+==> PHP 8.5.8 NTS
+    Trying: https://windows.php.net/downloads/releases/php-8.5.8-nts-Win32-vs17-x64.zip
+    [OK] Runtime: Z:\PHP CRYPT V2025\build\php-runtimes\8.5.8-nts
+    [OK] mbcrypt decrypt+execute: PASS
+    [OK] mbpak:// wrapper: PASS
+
+==> Summary -- mbcryptload decrypt+execute (calcul.encrypted.php)
+    PHP 8.0.30-nts : PASS
+    PHP 8.0.30-ts : PASS
+    PHP 8.1.10-nts : PASS
+    PHP 8.1.10-ts : PASS
+    PHP 8.2.15-nts : PASS
+    PHP 8.2.15-ts : PASS
+    PHP 8.3.16-nts : PASS
+    PHP 8.3.16-ts : PASS
+    PHP 8.4.23-nts : PASS
+    PHP 8.4.23-ts : PASS
+    PHP 8.5.8-nts : PASS
+    PHP 8.5.8-ts : PASS
+
+==> Summary -- mbpak:// stream wrapper (mount + require)
+    PHP 8.0.30-nts : PASS
+    PHP 8.0.30-ts : PASS
+    PHP 8.1.10-nts : PASS
+    PHP 8.1.10-ts : PASS
+    PHP 8.2.15-nts : PASS
+    PHP 8.2.15-ts : PASS
+    PHP 8.3.16-nts : PASS
+    PHP 8.3.16-ts : PASS
+    PHP 8.4.23-nts : PASS
+    PHP 8.4.23-ts : PASS
+    PHP 8.5.8-nts : PASS
+    PHP 8.5.8-ts : PASS

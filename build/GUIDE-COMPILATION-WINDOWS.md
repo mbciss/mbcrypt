@@ -4,6 +4,11 @@ Auteur : CISSE Mohamed Bassirou
 Date   : 2026-07-17  
 Cible  : PHP 8.0 a 8.5, TS + NTS, x64 (VS16 pour 8.0-8.3, VS17 pour 8.4-8.5)
 
+> **mbpak** (CLI `mbpak.exe` + support `mbpak://` dans les DLLs
+> ci-dessous) a sa propre procedure de build et sa propre matrice de
+> tests d'execution (12 versions PHP x NTS/TS), ajoutee le 2026-07-22 --
+> voir `build/INTEGRATION-MBPAK-WINDOWS/GUIDE-INTEGRATION-COMPLETE.md`.
+
 ## Trois scripts de compilation
 
 | Mode | Script | Resultat | Usage |

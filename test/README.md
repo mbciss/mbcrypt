@@ -59,10 +59,13 @@ shutdown (voir `mbcrypt/ALGORITHME.md` section 7) :
 | PHP 8.4.23| vs17      | Runtime temporaire (non fourni dans le depot)      | OK |
 | PHP 8.5.8 | vs17      | Laragon (`php-8.5.8-Win32-vs17-x64`)               | OK |
 
-Les variantes NTS ne sont pas verifiees a l'execution ici (aucun
-runtime PHP NTS installe localement) — seule la compilation est
-verifiee pour ces 6 DLLs (`build-windows-all.ps1`, tache "Compiler
-les 12 DLLs").
+Les variantes NTS n'etaient pas verifiees a l'execution ici a cette
+date (aucun runtime PHP NTS installe localement) — seule la compilation
+etait verifiee pour ces 6 DLLs. **Comble le 2026-07-22** : voir
+`build/INTEGRATION-MBPAK-WINDOWS/GUIDE-INTEGRATION-COMPLETE.md`, qui
+telecharge les binaires PHP NTS complets (pas seulement les devel packs)
+et verifie les 12 combinaisons (NTS **et** TS) a l'execution reelle,
+12/12 PASS -- plus le wrapper `mbpak://`, egalement 12/12 PASS.
 
 ## Resultats verifies -- Linux (2026-07-17)
 

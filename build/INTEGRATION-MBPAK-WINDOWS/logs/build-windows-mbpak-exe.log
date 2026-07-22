@@ -1,0 +1,20 @@
+﻿
+==> Environment check
+    [OK] cl.exe VS2019: C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools\VC\Tools\MSVC\14.29.30133\bin\Hostx64\x64\cl.exe
+    [OK] zlib: C:\laragon\bin\apache\httpd-2.4.54-win64-VS16\include
+    [OK] OpenSSL: C:\Program Files\OpenSSL-Win64\include
+
+==> Compiling mbpak.exe (CLI archive tool)
+    Compiling...
+    [OK] EXE: Z:\PHP CRYPT V2025\build\dist\mbpak.exe
+
+mbpak.exe built: Z:\PHP CRYPT V2025\build\dist\mbpak.exe (85 KB)
+
+Usage:
+    mbpak.exe pack    -p PASSWORD -o ARCHIVE.mbpak SOURCE_DIR
+    mbpak.exe list    -p PASSWORD ARCHIVE.mbpak
+    mbpak.exe extract -p PASSWORD -o OUT_DIR ARCHIVE.mbpak [VPATH]
+    mbpak.exe put     -p PASSWORD ARCHIVE.mbpak VPATH LOCAL_FILE
+    mbpak.exe get     -p PASSWORD ARCHIVE.mbpak VPATH [-o LOCAL_FILE]
+    mbpak.exe rm      -p PASSWORD ARCHIVE.mbpak VPATH
+    mbpak.exe compact -p PASSWORD ARCHIVE.mbpak

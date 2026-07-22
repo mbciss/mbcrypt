@@ -1,3 +1,4 @@
 *.o
 mbpak
+mbpak.exe
 test/tmp/
