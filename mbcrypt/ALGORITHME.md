@@ -1,4 +1,4 @@
-# MBCRYPT v3 — Documentation algorithmique
+# MBCRYPT v3 : Documentation algorithmique
 
 Auteur : CISSE Mohamed Bassirou
 Date   : 2026-07-17
@@ -17,7 +17,7 @@ Pour la compilation voir `build/GUIDE-COMPILATION-WINDOWS.md`.
 ## 1. Vue d'ensemble
 
 MBCRYPT est compose de deux parties qui partagent la meme bibliotheque
-core (`mbcrypt_lib.c`, sans dependance PHP — uniquement `malloc`/`free`) :
+core (`mbcrypt_lib.c`, sans dependance PHP, uniquement `malloc`/`free`) :
 
 ```
 mbcrypt.exe (CLI)          mbcryptload (extension PHP)
@@ -36,14 +36,14 @@ mbcrypt.exe (CLI)          mbcryptload (extension PHP)
 - **`mbcryptload`** (extension PHP) intercepte le chargement de chaque
   fichier PHP (`zend_compile_file`), detecte s'il est chiffre, le
   dechiffre en memoire (`mbcrypt_lib_decode`) et donne le resultat au
-  compilateur Zend — le fichier en clair n'existe jamais sur disque.
+  compilateur Zend, le fichier en clair n'existe jamais sur disque.
 
 ---
 
 ## 2. Format binaire V3
 
 Le format est defini dans `mbcrypt_lib.h` (`mbcrypt_v3_header_t`,
-`pragma pack(1)` — aucun octet de padding).
+`pragma pack(1)`, aucun octet de padding).
 
 ```
 Offset  Taille  Contenu
@@ -66,13 +66,13 @@ retrocompatibilite (`mbcrypt_lib_detect`), mais plus jamais produit
 en ecriture.
 
 `mbcrypt_lib_detect()` lit uniquement les 9 (ou 17) premiers octets
-pour identifier le format — c'est une verification bon marche
+pour identifier le format, c'est une verification bon marche
 executee **avant** toute operation cryptographique, pour que les
 fichiers PHP non chiffres traversent le hook sans surcout.
 
 ---
 
-## 3. Algorithme de chiffrement — `mbcrypt_lib_encode()`
+## 3. Algorithme de chiffrement : `mbcrypt_lib_encode()`
 
 Pipeline pour un fichier PHP source, en deux etapes fixes :
 
@@ -92,7 +92,7 @@ blob V3 (tag + en-tete + [sel+iv+tag GCM] + donnees)
 **Pourquoi compresser avant de chiffrer, jamais l'inverse ?**
 Un contenu chiffre a une entropie proche du hasard, donc incompressible.
 En compressant le PHP en clair d'abord (le code source est tres
-redondant — mots-cles, indentation, noms repetes), le blob final est
+redondant, mots-cles, indentation, noms repetes), le blob final est
 a la fois plus petit et le chiffrement s'applique sur un flux dense
 sans structure exploitable.
 
@@ -112,7 +112,7 @@ sans structure exploitable.
    tag d'authentification de 128 bits calcule sur l'ensemble des
    donnees.
 4. La cle en clair est effacee de la pile (`memset`) immediatement
-   apres usage — elle ne doit jamais survivre plus longtemps que
+   apres usage, elle ne doit jamais survivre plus longtemps que
    necessaire en memoire.
 5. Assembler le blob : en-tete V3 + sel + iv + tag + texte chiffre.
 
@@ -129,7 +129,7 @@ buf[i] = k[(len - i) % klen] ^ (~(unsigned char)buf[i]);
 ```
 
 C'est un mode de **compatibilite** (V2 historique), pas une protection
-cryptographique reelle — la meme cle est compilee en dur dans le
+cryptographique reelle, la meme cle est compilee en dur dans le
 binaire (`mbcrypt.exe` et l'extension), donc quiconque a acces au
 binaire peut retrouver la cle et dechiffrer. `init_key` permet de
 regenerer une cle et une permutation propres a un projet avant
@@ -138,7 +138,7 @@ confidentialite reelle.
 
 ---
 
-## 4. Algorithme de dechiffrement — `mbcrypt_lib_decode()`
+## 4. Algorithme de dechiffrement : `mbcrypt_lib_decode()`
 
 Chemin inverse, pilote par le resultat de `mbcrypt_lib_detect()` :
 
@@ -162,7 +162,7 @@ source.php (clair, en memoire uniquement)
 d'authentification calcule a l'etape 3a d'`aes_gcm_decrypt` *avant*
 de considerer le dechiffrement reussi. Si le tag ne correspond pas
 (mauvais mot de passe **ou** fichier modifie/corrompu), la fonction
-retourne une erreur et `mbcrypt_lib_decode()` renvoie `NULL` — aucune
+retourne une erreur et `mbcrypt_lib_decode()` renvoie `NULL`, aucune
 donnee partiellement dechiffree n'est jamais exposee a l'appelant.
 C'est la difference fondamentale avec le XOR : XOR "dechiffre" toujours
 quelque chose (du bruit avec la mauvaise cle), GCM sait dire "non".
@@ -171,7 +171,7 @@ quelque chose (du bruit avec la mauvaise cle), GCM sait dire "non".
 taille du fichier original n'est pas connue a l'avance, donc la
 decompression tourne en boucle par blocs de `ZLIB_CHUNK` (64 Ko),
 en reallouant (`realloc`, doublement de capacite) le buffer de sortie
-au fur et a mesure — jamais de buffer de taille fixe sur la pile,
+au fur et a mesure, jamais de buffer de taille fixe sur la pile,
 ce qui evite tout debordement quelle que soit la taille du fichier
 source (bug corrige par rapport a la v2, qui utilisait un buffer
 statique de 100 Ko).
@@ -214,7 +214,7 @@ mbcryptload_compile_file(file_handle, type)
   '-- org_compile_file(file_handle, type)   [PHP compile le contenu dechiffre]
 ```
 
-Dans tous les cas, l'appel se termine par `org_compile_file()` — le
+Dans tous les cas, l'appel se termine par `org_compile_file()`, le
 hook ne remplace jamais le compilateur Zend, il se contente de
 substituer le **contenu** du fichier juste avant.
 
@@ -228,7 +228,7 @@ fh->handle.stream.closer = NULL; /* evite un close() sur un flux deja ferme */
 
 Le buffer dechiffre (alloue par `malloc`, cote bibliotheque C pure)
 est copie dans une chaine geree par l'allocateur Zend (`estrndup`,
-memoire *liee a la requete* — c'est correct ici car ce buffer n'a
+memoire *liee a la requete*, c'est correct ici car ce buffer n'a
 besoin de vivre que le temps de la compilation du fichier courant).
 Le buffer `malloc` d'origine est libere juste apres (`free(decrypted)`
 dans `mbcryptload_compile_file`).
@@ -243,7 +243,7 @@ if (!password || !*password) password = MBCRYPTLOAD_G(ini_password); /* 2. php.i
 if (!password || !*password) password = getenv("MBCRYPTLOAD_PASSWORD"); /* 3. env */
 ```
 
-La premiere source non vide gagne — un appel explicite en PHP prime
+La premiere source non vide gagne, un appel explicite en PHP prime
 toujours sur la configuration globale.
 
 ### 5.4 Protection anti-divulgation
@@ -251,12 +251,12 @@ toujours sur la configuration globale.
 Avant meme de lire le fichier, le hook verifie si l'appelant est
 `show_source()` ou `highlight_file()` (via `EG(current_execute_data)`,
 qui donne acces a la fonction en cours d'execution dans la pile Zend)
-et, si oui, laisse `org_compile_file()` gerer l'appel sans dechiffrer
-— ces fonctions affichent le contenu brut d'un fichier, donc les
+et, si oui, laisse `org_compile_file()` gerer l'appel sans dechiffrer :
+ces fonctions affichent le contenu brut d'un fichier, donc les
 laisser passer sur un fichier chiffre revient a ne rien divulguer
 (elles afficheront le blob chiffre illisible, pas le code source).
 
-### 5.5 Compatibilite PHP 7.0 – 8.x
+### 5.5 Compatibilite PHP 7.0 a 8.x
 
 Le seul changement d'ABI significatif entre ces versions qui touche
 `mbcryptload.c` est le type de `zend_file_handle.filename` :
@@ -273,7 +273,7 @@ Le seul changement d'ABI significatif entre ces versions qui touche
 ```
 
 `zend_file_handle.buf`/`.len`, en revanche, sont restes des
-`char*`/`size_t` stables sur toute la plage 7.0-8.x — aucune macro
+`char*`/`size_t` stables sur toute la plage 7.0-8.x, aucune macro
 n'est necessaire pour `mbcrypt_inject_buf()`.
 
 ---
@@ -330,14 +330,14 @@ optionnel, appele automatiquement par TSRM lors du demontage du
 systeme de threads (`tsrm_shutdown()`). Sur Windows, pour une extension
 chargee dynamiquement (`.dll`) en mode ZTS, ce demontage intervient
 **apres** que le systeme d'exploitation a deja decharge la DLL de
-l'extension — appeler ce pointeur de fonction saute alors dans une
+l'extension, appeler ce pointeur de fonction saute alors dans une
 zone memoire qui ne contient plus le code de la fonction, provoquant
 un acces memoire invalide.
 
 Solution retenue : ne jamais enregistrer de destructeur automatique
 (`NULL` en troisieme argument de `ZEND_INIT_MODULE_GLOBALS`), et
 liberer explicitement les ressources dans `PHP_MSHUTDOWN_FUNCTION`,
-qui s'execute **avant** que PHP ne decharge le module — a un moment
+qui s'execute **avant** que PHP ne decharge le module, a un moment
 ou le code de l'extension est garanti present en memoire.
 
 Cela a fait apparaitre un second probleme lie a la duree de vie de la
@@ -345,7 +345,7 @@ memoire : `mbcryptload_set_password()` allouait la copie du mot de
 passe avec `estrndup()`, une fonction **liee au cycle de la requete
 PHP courante**. Or, entre le moment ou le mot de passe est defini et
 le moment ou `MSHUTDOWN` s'execute, la requete qui a defini ce mot de
-passe est deja terminee — et Zend a deja recycle automatiquement toute
+passe est deja terminee, et Zend a deja recycle automatiquement toute
 sa memoire (`estrndup` y compris) a la fin de cette requete
 (`RSHUTDOWN`). Appeler `efree()` sur ce pointeur dans `MSHUTDOWN`
 revenait donc a liberer une memoire deja liberee (double-free),
@@ -354,7 +354,7 @@ corrompant le tas Zend (`zend_mm_heap corrupted`).
 La correction complete utilise de la memoire **persistante**
 (`pestrndup(pass, pass_len, 1)` / `pefree(ptr, 1)`), qui n'est liee a
 aucune requete et reste valide jusqu'a ce que le module la libere
-explicitement — coherent avec le role reel du champ : une valeur
+explicitement, coherent avec le role reel du champ : une valeur
 globale qui doit survivre a la requete qui l'a definie.
 
 ---
@@ -363,7 +363,7 @@ globale qui doit survivre a la requete qui l'a definie.
 
 `mbcrypt.c` (CLI) et `mbcryptload_encrypt_file()` (API PHP) verifient
 tous deux, avant de chiffrer, que le fichier source ne commence pas
-deja par un tag `MB_ENC_V2` ou `MB_ENC_V3` — un fichier deja chiffre
+deja par un tag `MB_ENC_V2` ou `MB_ENC_V3`, un fichier deja chiffre
 est ignore (`Skip (already encrypted)`) plutot que rechiffre par
 erreur, ce qui produirait un fichier illisible (double encapsulation
 que rien ne sait decoder).

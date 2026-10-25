@@ -194,4 +194,4 @@ packer / quoi laisser" plus bas dans `pistes-a-explorer.md`).
 
 ## Auteur
 
-CISSE Mohamed Bassirou — <mohamedbachir.cisse@gmail.com>
+CISSE Mohamed Bassirou, <mohamedbachir.cisse@gmail.com>

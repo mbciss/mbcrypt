@@ -12,3 +12,13 @@ build/dist-linux/*.so
 build/dist-linux/mbcrypt
 build/*.log
 build/php-runtimes/
+
+# Not part of the public source repo
+crash/
+web/
+presentation/
+Mon cadeau pour les d*veloppeurs PH.txt
+Option pour PHP STATIC a revoir.txt
+*.crash
+*.core
+pistes-a-explorer.md

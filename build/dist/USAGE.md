@@ -26,7 +26,7 @@ php_mbcryptload_php85_nts.dll       PHP 8.5 - Non Thread Safe
 ```
 
 Toutes les DLLs sont compilees x64. PHP 8.0-8.3 utilisent le toolchain
-VS2019 (vs16) ; PHP 8.4-8.5 utilisent VS2022 (vs17) — ce detail n'a
+VS2019 (vs16) ; PHP 8.4-8.5 utilisent VS2022 (vs17), ce detail n'a
 aucun impact cote utilisateur, seule la version de PHP compte.
 
 ---
@@ -197,12 +197,12 @@ php.exe encrypted.php
 cmd /C "set MBCRYPTLOAD_PASSWORD=mon-mot-de-passe && php.exe encrypted.php"
 ```
 
-**Serveur web Apache / Laragon** — ajouter dans le VirtualHost ou `.htaccess` :
+**Serveur web Apache / Laragon** : ajouter dans le VirtualHost ou `.htaccess` :
 ```apache
 SetEnv MBCRYPTLOAD_PASSWORD "mon-mot-de-passe"
 ```
 
-**Serveur web Nginx + PHP-FPM** — ajouter dans le bloc `location` ou `fastcgi_params` :
+**Serveur web Nginx + PHP-FPM** : ajouter dans le bloc `location` ou `fastcgi_params` :
 ```nginx
 fastcgi_param MBCRYPTLOAD_PASSWORD "mon-mot-de-passe";
 ```
@@ -354,7 +354,7 @@ mbpak_unmount();
 
 ## 8. Journal des correctifs
 
-### 2026-07-17 — Crash au demarrage / arret de PHP (versions TS)
+### 2026-07-17 : Crash au demarrage / arret de PHP (versions TS)
 
 Les DLLs `*_ts.dll` generees avant cette date pouvaient faire planter
 PHP au demarrage (`php -m`, ou tout script) des que l'extension etait
@@ -367,7 +367,7 @@ decharge la DLL en memoire.
 utilisez une DLL compilee avant le 2026-07-17, recompilez avec
 `build\build-windows-all.ps1` ou `build\build-windows.ps1`.
 
-### 2026-07-22 — DLLs Windows perimees (mbpak absent) + `mbpak compact` casse sous Windows
+### 2026-07-22 : DLLs Windows perimees (mbpak absent) + `mbpak compact` casse sous Windows
 
 Les 12 DLLs presentes dans ce dossier avant cette date dataient du
 2026-07-17, soit **avant** l'integration du support `.mbpak` dans

@@ -1,22 +1,26 @@
 # MBCRYPT v3
 
-MBCRYPT is a PHP script encryption tool. When distributing commercial PHP software, files can be encrypted and are decrypted transparently at runtime by a PHP extension — the original script is never written to disk.
+> **Documentation:** https://kalya-technologies.com/mbcrypt  
+> **Binaries** (Windows DLL/EXE, Linux .so): see [Releases](https://github.com/mbciss/mbcrypt/releases), verify with `SHA256SUMS.txt`
+> **License:** GPL-2.0, see [LICENSE](LICENSE) and [NOTICE.md](NOTICE.md). **Security:** [SECURITY.md](SECURITY.md)
+
+MBCRYPT is a PHP script encryption tool. When distributing commercial PHP software, files can be encrypted and are decrypted transparently at runtime by a PHP extension. The original script is never written to disk.
 
 Based on PHP-Screw, rewritten by CISSE Mohamed Bassirou.
 
 ## Features
 
 - **Real AES-256-GCM encryption** with PBKDF2-SHA256 key derivation (100 000 iterations, random salt + nonce per file)
-- **GCM authentication tag** — any file tampering is detected before execution
+- **GCM authentication tag**: any file tampering is detected before execution
 - **Legacy XOR mode** kept for backward compatibility with V2-encrypted files
 - **Backward-compatible**: V2 files (old format) are still decrypted transparently
-- **Heap-only zlib**: no stack buffers — robust for large files, no stack overflow
-- **Batch encryption** — encrypt an entire directory tree recursively (`-r`)
+- **Heap-only zlib**: no stack buffers, robust for large files, no stack overflow
+- **Batch encryption**: encrypt an entire directory tree recursively (`-r`)
 - **Thread-safe PHP extension** (ZTS / NTS)
-- **PHP 7.0 – 8.x** compatible (including PHP 8.1+ `zend_string*` changes)
-- Tested on Ubuntu / CentOS / OpenWRT — x86\_64 / ARM / MIPS
+- **PHP 7.0 to 8.x** compatible (including PHP 8.1+ `zend_string*` changes)
+- Tested on Ubuntu / CentOS / OpenWRT: x86\_64 / ARM / MIPS
 - Supports PHP JIT (PHP 8+)
-- **`.mbpak` archives** (read/write, one opaque file for a whole app —
+- **`.mbpak` archives** (read/write, one opaque file for a whole app,
   file names and structure hidden too) via `mbpak_mount()`/the
   `mbpak://` stream wrapper: see [`mbpak/README.md`](mbpak/README.md)
 
@@ -40,7 +44,7 @@ Based on PHP-Screw, rewritten by CISSE Mohamed Bassirou.
 | Dependency | Role | Notes |
 |------------|------|-------|
 | zlib       | Compression | Required |
-| OpenSSL ≥ 1.1 | AES-256-GCM | Optional — without it, only XOR mode |
+| OpenSSL ≥ 1.1 | AES-256-GCM | Optional. Without it, only XOR mode |
 
 ### PHP version support
 
@@ -48,7 +52,7 @@ Based on PHP-Screw, rewritten by CISSE Mohamed Bassirou.
 |-------------|--------|
 | PHP 8.x     | Recommended |
 | PHP 7.4.x   | Supported |
-| PHP 7.0–7.3 | Supported |
+| PHP 7.0 to 7.3 | Supported |
 
 PHP must be compiled with `--with-zlib`.
 
@@ -143,11 +147,11 @@ make && make install
 ## Security notes
 
 - **AES-256-GCM** is authenticated encryption: a wrong password or tampered file returns an error instead of garbage output.
-- The **XOR legacy key** is compiled into both the encoder and the extension — run `init_key` to personalise it before distributing.
-- The password for AES files is **never stored on disk** — set it via `mbcryptload_set_password()` or the `MBCRYPTLOAD_PASSWORD` environment variable.
+- The **XOR legacy key** is compiled into both the encoder and the extension. Run `init_key` to personalise it before distributing.
+- The password for AES files is **never stored on disk**: set it via `mbcryptload_set_password()` or the `MBCRYPTLOAD_PASSWORD` environment variable.
 - `show_source()` and `highlight_file()` are blocked on encrypted files.
 
 ## Author
 
-CISSE Mohamed Bassirou — <mohamedbachir.cisse@gmail.com>  
+CISSE Mohamed Bassirou, <mohamedbachir.cisse@gmail.com>  
 Original code: sun bing <hoowa.sun@gmail.com>

@@ -24,7 +24,7 @@ Chaque dossier `phpXX/` correspond a une des versions ciblees par
 fichier chiffre sous cette version precise de PHP.
 
 Le contenu du programme d'exemple (`calcul.php`) est identique dans
-tous les dossiers — l'algorithme mbcrypt ne depend pas de la version
+tous les dossiers, l'algorithme mbcrypt ne depend pas de la version
 de PHP, seule la version de l'extension (compilee contre les en-tetes
 de chaque version) change. Le blob chiffre produit par `mbcrypt.exe`
 est lui aussi identique quelle que soit la version PHP visee.
@@ -60,7 +60,7 @@ shutdown (voir `mbcrypt/ALGORITHME.md` section 7) :
 | PHP 8.5.8 | vs17      | Laragon (`php-8.5.8-Win32-vs17-x64`)               | OK |
 
 Les variantes NTS n'etaient pas verifiees a l'execution ici a cette
-date (aucun runtime PHP NTS installe localement) — seule la compilation
+date (aucun runtime PHP NTS installe localement), seule la compilation
 etait verifiee pour ces 6 DLLs. **Comble le 2026-07-22** : voir
 `build/INTEGRATION-MBPAK-WINDOWS/GUIDE-INTEGRATION-COMPLETE.md`, qui
 telecharge les binaires PHP NTS complets (pas seulement les devel packs)
@@ -90,7 +90,6 @@ Cette verification a mis au jour un bug reel corrige le meme jour :
 `mbcrypt/config.m4` ne propageait pas la macro `MBCRYPT_HAS_OPENSSL` a
 `mbcrypt_lib.c` lors d'une compilation `phpize` (elle n'atteignait que
 `mbcryptload.c` via `config.h`), si bien que **tout `.so` Linux compile
-avant ce correctif ne pouvait pas dechiffrer les fichiers AES-256-GCM**
-— `phpinfo()`/`--ri` affichait pourtant `AES-256-GCM => enabled` de
+avant ce correctif ne pouvait pas dechiffrer les fichiers AES-256-GCM**. `phpinfo()`/`--ri` affichait pourtant `AES-256-GCM => enabled` de
 maniere trompeuse. Le mode XOR legacy n'etait pas affecte. Detail
 complet dans `build/GUIDE-COMPILATION-LINUX.md` section "Bug corrige".

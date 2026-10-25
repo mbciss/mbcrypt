@@ -43,8 +43,8 @@ primitive qui change entre v1/v2 et v3.
 | 8      | 1      | `version`      | = 3 |
 | 9      | 3      | `reserved`     | zero-pad |
 | 12     | 16     | `kdf_salt`     | salt PBKDF2 pour toute l'archive (v3, voir plus bas) |
-| 28     | 8      | `toc_offset`   | u64 LE — offset absolu du RECORD contenant la TOC courante |
-| 36     | 4      | `header_crc32` | CRC32 des octets [0..36) — détecte une écriture de header tronquée ; **ce n'est pas un secret**, juste une protection anti-corruption |
+| 28     | 8      | `toc_offset`   | u64 LE, offset absolu du RECORD contenant la TOC courante |
+| 36     | 4      | `header_crc32` | CRC32 des octets [0..36), détecte une écriture de header tronquée ; **ce n'est pas un secret**, juste une protection anti-corruption |
 
 C'est le **seul** endroit du fichier réécrit en place. Tout le reste est
 en append-only.
@@ -67,7 +67,7 @@ La longueur du record n'est **pas** dupliquée dans la TOC : elle est
 lue depuis le préfixe de 8 octets du RECORD lui-même à `offset`. Une
 seule source de vérité.
 
-## Dérivation de clé (v3) — la clé se dérive une fois par archive, pas une fois par fichier
+## Dérivation de clé (v3) : la clé se dérive une fois par archive, pas une fois par fichier
 
 `kdf_salt` (dans le HEADER) sert à dériver la clé AES de l'archive
 **une seule fois**, à `mbpak_open()`/`mbpak_create()`, via
